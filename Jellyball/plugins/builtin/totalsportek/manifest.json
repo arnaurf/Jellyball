@@ -1,0 +1,14 @@
+{
+    "name": "TotalSportek",
+    "version": "3.0.0",
+    "api_version": 1,
+    "entry": "provider.py:TotalSportekScraper",
+    "author": "Jellyball",
+    "description": "Built-in TotalSportek provider.",
+    "builtin": true,
+    "linear": false,
+    "permissions": [
+        "network",
+        "browser"
+    ]
+}
