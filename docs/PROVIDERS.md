@@ -28,10 +28,15 @@ enable/disable and priority controls in the dashboard are **planned**.
 Formula 1, MotoGP and Formula E are opt-in groups (dashboard, Channels &
 Streams, **More leagues & channel groups**). Each adds one channel for the
 series that picks up every session the event directories list (practice,
-qualifying, sprint, race; MotoGP includes Moto2 and Moto3). They have no
-schedule source, so they search throughout their season. The Formula 1 group
-also adds the 24/7 channels Sky Sports F1, F1 TV and DAZN F1, searched on the
-linear-channel providers.
+qualifying, sprint, race; MotoGP includes Moto2 and Moto3). They search
+throughout their season. The Formula 1 group also adds the 24/7 channels Sky
+Sports F1, F1 TV and DAZN F1, searched on the linear-channel providers.
+
+The guide (`/epg.xml` and the dashboard's now/next) lists each session of a
+race weekend on the Formula 1 channel and the three 24/7 F1 channels, from
+Jolpica's F1 timetable, and on the MotoGP channel from the official MotoGP
+timetable (MotoGP, Moto2 and Moto3 sessions). Formula E has no reachable
+timetable and keeps the generic guide.
 
 Event directories read their series-only pages (`category_paths` in each
 plugin) only during that series' search. Regional feeds such as "DAZN F1 ES"

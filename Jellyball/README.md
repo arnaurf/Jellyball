@@ -466,6 +466,7 @@ Webhook delivery retries up to twice (honoring `Retry-After`, capped at
 | `MAX_CONCURRENT_MULTIVIEW` | `3` | Max Multi-View grids running at once |
 | `MULTIVIEW_AUDIO_CHANNELS` | `1` (on) | Expose per-member audio as separate Jellyfin channels |
 | `YOUTUBE_RESOLVE_TIMEOUT` | `45` | Max seconds yt-dlp may take to resolve a YouTube live channel |
+| `MOTORSPORT_SCHEDULE_CACHE_SECONDS` | `3600` | How long the F1 (Jolpica) and MotoGP (official API) session timetables used for the guide are cached |
 | `MULTIVIEW_BACKOFF_BASE_SECONDS` | `15` | Spawn-failure retry backoff base |
 | `MULTIVIEW_BACKOFF_MAX_SECONDS` | `300` | Spawn-failure retry backoff cap |
 | `MULTIVIEW_RESTART_WINDOW_SECONDS` | `600` | Watchdog restart-burst rolling window |

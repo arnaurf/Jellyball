@@ -19,6 +19,7 @@ from state import _spawn_background_task, is_multiview, stream_state
 from db import log_metric_event_async, update_team_meta_async
 import scrapers
 from scrapers import master_scrape
+import motorsport_schedule
 import youtube_live
 from catalog import (
     fetch_espn_team_schedule,
@@ -333,6 +334,11 @@ async def _trigger_scrape_unlocked(team_id: str, force: bool = False):
         schedule_ok = True
     else:
         start_utc, stop_utc, schedule_ok = await fetch_espn_team_schedule(team_name, query, category, source_id)
+
+    series = motorsport_schedule.channel_series(stream_state.get(team_id) or {})
+    if series and in_season:
+        # Keeps the guide's session list warm for the dashboard's now/next.
+        await motorsport_schedule.refresh(series)
 
     current = stream_state.get(team_id)
     if current is None:

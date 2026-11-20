@@ -27,6 +27,7 @@ from catalog import (
     parse_team_schedule,
     xmltv_ts,
 )
+import motorsport_schedule
 from multiview import _multiview_member_label, MULTIVIEW_AUDIO_CHANNELS
 from stream_extractor import DEFAULT_USER_AGENT
 
@@ -211,6 +212,15 @@ def _channel_programmes(
               + (f" when the season resumes around {resumes}." if resumes else " when the season resumes."))
         return programmes
 
+    series = motorsport_schedule.channel_series(data)
+    sessions = motorsport_schedule.cached_sessions(series) if series else None
+    if sessions is not None:
+        for start, stop, title, desc, category in motorsport_schedule.programmes(
+            sessions, name, _channel_is_always_live(data), guide_start, guide_end,
+        ):
+            block(start, stop, title, desc, category)
+        return programmes
+
     dt_start, dt_stop = parse_team_schedule(data)
     has_specific_game = bool(
         dt_start and dt_stop and dt_stop >= guide_start and dt_start <= guide_end
@@ -263,6 +273,16 @@ def now_next_for_channel(team_id: str, data: dict) -> Dict[str, str]:
             "now": f"Off-season{f' (resumes {resumes})' if resumes else ''}",
             "next": "",
         }
+
+    series = motorsport_schedule.channel_series(data)
+    sessions = motorsport_schedule.cached_sessions(series) if series else None
+    if sessions is not None:
+        blocks = motorsport_schedule.programmes(
+            sessions, name, _channel_is_always_live(data), now, now + timedelta(days=GUIDE_HORIZON_DAYS),
+        )
+        fillers = {f"{name} Standby", f"{name} Live"}
+        upcoming = next((b[2] for b in blocks[1:] if b[2] not in fillers), "")
+        return {"now": blocks[0][2] if blocks else "", "next": upcoming}
 
     dt_start, dt_stop = parse_team_schedule(data)
     if dt_start and dt_stop:
@@ -572,6 +592,8 @@ async def generate_xmltv(request: Request = None):
     guide_start = now_utc - timedelta(hours=1)
     guide_end = now_utc + timedelta(days=GUIDE_HORIZON_DAYS)
     tvguide_schedules = await _fetch_tvguide_epg()
+    for series in {motorsport_schedule.channel_series(data) for data in stream_state.values()} - {""}:
+        await motorsport_schedule.refresh(series)
 
     for team_id, data in stream_state.items():
         if not _channel_listed(data):

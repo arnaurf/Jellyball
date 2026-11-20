@@ -172,6 +172,7 @@ hiddenimports = [
     "failover",
     "channels",
     "youtube_live",
+    "motorsport_schedule",
     "epg",
     "tunables",
     "jellyfin_client",
