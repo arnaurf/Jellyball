@@ -1,0 +1,14 @@
+{
+ "league": "f1",
+ "source": "Hand-written: Formula 1 has no teams to follow, so its one entry is the series. Its channel matches every session of a race weekend that a provider lists. The id \"f1\" is also a search term.",
+ "teams": [
+  {
+   "id": "f1",
+   "name": "Formula 1",
+   "aliases": [
+    "Formula One",
+    "Formula1"
+   ]
+  }
+ ]
+}

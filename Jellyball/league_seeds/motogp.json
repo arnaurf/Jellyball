@@ -1,0 +1,15 @@
+{
+ "league": "motogp",
+ "source": "Hand-written: MotoGP has no teams to follow, so its one entry is the series. Its channel matches every session of a race weekend that a provider lists, Moto2 and Moto3 included. The id \"motogp\" is also a search term.",
+ "teams": [
+  {
+   "id": "motogp",
+   "name": "MotoGP",
+   "aliases": [
+    "Moto GP",
+    "Moto2",
+    "Moto3"
+   ]
+  }
+ ]
+}

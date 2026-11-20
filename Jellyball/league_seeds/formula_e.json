@@ -1,0 +1,14 @@
+{
+ "league": "formula_e",
+ "source": "Hand-written: Formula E has no teams to follow, so its one entry is the series. Its channel matches every session of an E-Prix weekend that a provider lists. The id \"formula-e\" also gives the search term \"formula e\".",
+ "teams": [
+  {
+   "id": "formula-e",
+   "name": "Formula E",
+   "aliases": [
+    "E-Prix",
+    "ePrix"
+   ]
+  }
+ ]
+}
