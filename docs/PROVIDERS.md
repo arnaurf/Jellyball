@@ -23,6 +23,21 @@ requires those is simply skipped.
 The list is fixed in `Jellyball/scrapers.py` (`ACTIVE_PROVIDERS`); per-provider
 enable/disable and priority controls in the dashboard are **planned**.
 
+## Motorsport
+
+Formula 1, MotoGP and Formula E are opt-in groups (dashboard, Channels &
+Streams, **More leagues & channel groups**). Each adds one channel for the
+series that picks up every session the event directories list (practice,
+qualifying, sprint, race; MotoGP includes Moto2 and Moto3). They have no
+schedule source, so they search throughout their season. The Formula 1 group
+also adds the 24/7 channels Sky Sports F1, F1 TV and DAZN F1, searched on the
+linear-channel providers.
+
+Event directories read their series-only pages (`category_paths` in each
+plugin) only during that series' search. Regional feeds such as "DAZN F1 ES"
+are kept when the feed's language is one of your stream languages (Settings
+tab, or `STREAM_LANGUAGES=eng,spa`).
+
 ## How a search works
 
 1. For a channel, `master_scrape` searches the providers concurrently

@@ -20,7 +20,8 @@ from typing import Any, Dict, List, Optional
 import catalog
 from leagues import OPTIONAL_GROUPS_SETTING, parse_optional_groups
 from alerts import get_jellyfin_config, request_jellyfin_guide_refresh_if_changed
-from channels import _add_manual_team, _set_catalog_entry_enabled
+from channels import _add_manual_team, _add_youtube_channel, _set_catalog_entry_enabled
+import youtube_live
 from config import _clean_label, _safe_team_id, _validate_upstream_url
 from db import (
     _bulk_set_favorite_sync,
@@ -32,7 +33,7 @@ from db import (
 )
 from diagnostics import SECRET_SETTING_KEYS
 from failover import _scrape_lifecycle_defaults
-from multiview import MULTIVIEW_LAYOUTS, _forget_multiview_channel, _multiview_member_validation
+from multiview import MULTIVIEW_LAYOUTS, _forget_multiview_channel, _multiview_member_validation, parse_member_delays
 from scrapers import ACTIVE_PROVIDERS, HtmlAggregatorScraper, _provider_url_setting_key, _set_provider_url_override
 from state import new_channel_state, stream_state
 from tunables import TUNABLES, _apply_tunable, _coerce_tunable
@@ -60,17 +61,22 @@ def _exportable_keys() -> List[str]:
 
 def _load_multiview_rows() -> List[dict]:
     rows = []
-    for channel_id, name, layout, members, audio, tvg_id, group_title, logo_url in load_multiview_channels():
+    for mv in load_multiview_channels():
         try:
-            member_ids = json.loads(members or "[]")
+            member_ids = json.loads(mv.member_team_ids or "[]")
         except (TypeError, ValueError):
             member_ids = []
-        rows.append({
-            "channel_id": channel_id, "name": name, "layout": layout,
-            "member_team_ids": [str(m) for m in member_ids] if isinstance(member_ids, list) else [],
-            "active_audio_team_id": audio or "", "tvg_id": tvg_id or "",
-            "group_title": group_title or "", "logo_url": logo_url or "",
-        })
+        member_ids = [str(m) for m in member_ids] if isinstance(member_ids, list) else []
+        row = {
+            "channel_id": mv.channel_id, "name": mv.name, "layout": mv.layout,
+            "member_team_ids": member_ids,
+            "active_audio_team_id": mv.active_audio_team_id or "", "tvg_id": mv.tvg_id or "",
+            "group_title": mv.group_title or "", "logo_url": mv.logo_url or "",
+        }
+        delays = parse_member_delays(mv.member_delays, len(member_ids))
+        if any(delays):
+            row["member_delays"] = delays
+        rows.append(row)
     return rows
 
 
@@ -145,13 +151,18 @@ async def _import_teams(teams: list, catalog_entries: List[dict]) -> Dict[str, A
             if team.get("is_favorite"):
                 favorites.append(catalog_entry["team_id"])
             continue
-        team_id = await _add_manual_team(
-            str(team.get("name") or ""),
-            str(team.get("query") or ""),
-            team_id=requested_id,
-            logo_url=str(team.get("logo_url") or ""),
-            category=str(team.get("category") or "imported"),
-        )
+        if youtube_live.is_youtube_channel(team):
+            team_id = await _add_youtube_channel(
+                str(team.get("name") or ""), str(team.get("query") or ""), team_id=requested_id,
+            )
+        else:
+            team_id = await _add_manual_team(
+                str(team.get("name") or ""),
+                str(team.get("query") or ""),
+                team_id=requested_id,
+                logo_url=str(team.get("logo_url") or ""),
+                category=str(team.get("category") or "imported"),
+            )
         if team_id is None:
             skipped += 1
             continue
@@ -199,8 +210,11 @@ async def _import_multiview(rows: list, id_map: Dict[str, str]) -> Dict[str, int
         group_title = _clean_label(row.get("group_title"), 80) or "Multi-View"
         logo_url = str(row.get("logo_url") or "").strip()
         logo_url = (_validate_upstream_url(logo_url) or "") if logo_url else ""
+        delays = parse_member_delays(row.get("member_delays") or [], len(members))
         _forget_multiview_channel(channel_id)
-        await save_multiview_channel_async(channel_id, name, layout, members, audio, tvg_id, group_title, logo_url)
+        await save_multiview_channel_async(
+            channel_id, name, layout, members, audio, tvg_id, group_title, logo_url, member_delays=delays,
+        )
         stream_state[channel_id] = new_channel_state(
             name=name,
             query="",
@@ -215,6 +229,7 @@ async def _import_multiview(rows: list, id_map: Dict[str, str]) -> Dict[str, int
             layout=layout,
             member_team_ids=members,
             active_audio_team_id=audio,
+            member_delays=delays,
             **_scrape_lifecycle_defaults(),
         )
         imported += 1

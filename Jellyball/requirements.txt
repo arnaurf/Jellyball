@@ -22,4 +22,6 @@ bcrypt==5.0.0
 cryptography==50.0.2
 dnspython==2.9.2
 tzdata==2026.6
+# YouTube live channels. YouTube changes often: bump this when resolving breaks.
+yt-dlp==2026.10.26
 pywin32==312; sys_platform == "win32"

@@ -57,7 +57,7 @@ def _entries(groups):
 class RegistryTests(unittest.TestCase):
     def test_keys_do_not_collide_with_the_frozen_leagues(self):
         keys = [league.key for league in OPTIONAL_LEAGUES]
-        self.assertEqual(keys, ["mls", "epl", "ucl", "cfl", "pwhl"])
+        self.assertEqual(keys, ["mls", "epl", "ucl", "cfl", "pwhl", "f1", "motogp", "formula_e"])
         self.assertFalse(set(keys) & set(LEAGUES_BY_KEY))
         self.assertFalse(set(keys) & set(CATALOG_CATEGORIES))
         self.assertEqual(OPTIONAL_GROUP_KEYS, (*keys, UK_SPORTS_GROUP_KEY))
@@ -68,7 +68,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(parse_optional_groups(None), ())
 
     def test_seeds_are_well_formed_with_unique_frozen_ids(self):
-        expected = {"mls": 30, "epl": 20, "ucl": 36, "cfl": 9, "pwhl": 12}
+        expected = {"mls": 30, "epl": 20, "ucl": 36, "cfl": 9, "pwhl": 12, "f1": 1, "motogp": 1, "formula_e": 1}
         for league in OPTIONAL_LEAGUES:
             with self.subTest(league=league.key):
                 rows = json.loads((SEED_DIR / f"{league.key}.json").read_text(encoding="utf-8"))["teams"]
@@ -88,8 +88,9 @@ class RegistryTests(unittest.TestCase):
             league = schedule_league(key)
             self.assertTrue(league.has_schedule)
             self.assertEqual(dict(league.schedule_params), {"fixture": "true"})
-        # ESPN has no PWHL and its CFL schedules stopped in 2022.
-        for key in ("cfl", "pwhl"):
+        # ESPN has no PWHL, its CFL schedules stopped in 2022, and the
+        # motorsport series have no teams to look a schedule up for.
+        for key in ("cfl", "pwhl", "f1", "motogp", "formula_e"):
             self.assertFalse(schedule_league(key).has_schedule)
 
     def test_inter_miami_maps_to_inter_miami_cf(self):

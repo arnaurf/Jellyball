@@ -17,6 +17,7 @@ import state
 from leagues import (
     CATALOG_CATEGORIES,
     COLLEGE_CATEGORIES,
+    F1,
     LEAGUES,
     OPTIONAL_LEAGUES,
     OPTIONAL_LEAGUES_BY_KEY,
@@ -27,6 +28,7 @@ from network_safety import bounded_float, safe_get
 from optional_leagues import optional_records
 from sports_catalog import (
     ESPN_DIRECTORY_ENDPOINTS,
+    F1_SPECIAL_CHANNELS,
     OPTIONAL_SPECIAL_CHANNELS,
     parse_espn_team_directory,
     SEASON_WINDOWS,
@@ -248,9 +250,11 @@ def _catalog_display_name(category: str, record: TeamSlug) -> str:
     return _sport_labeled_name(record.display_name, category)
 
 
-# The opt-in UK channels are found by catalog key only: their names are not
-# labels below, so a custom channel that shares one keeps its own metadata.
-_SPECIAL_CHANNELS_BY_KEY = {channel.key: channel for channel in (*SPECIAL_CHANNELS, *OPTIONAL_SPECIAL_CHANNELS)}
+# The opt-in UK and F1 channels are found by catalog key only: their names are
+# not labels below, so a custom channel that shares one keeps its own metadata.
+_SPECIAL_CHANNELS_BY_KEY = {
+    channel.key: channel for channel in (*SPECIAL_CHANNELS, *OPTIONAL_SPECIAL_CHANNELS, *F1_SPECIAL_CHANNELS)
+}
 
 
 def _normalize_channel_label(value: object) -> str:
@@ -315,6 +319,7 @@ def _channel_group_title(data: dict) -> str:
         or (special_channel.group_title if special_channel else "")
         or _CATEGORY_GROUP_LABELS.get(category)
         or _OPTIONAL_GROUP_LABELS.get(category)
+        or ("YouTube" if category == "youtube" else "")
         or "Team Trackers"
     )
 
@@ -379,9 +384,9 @@ def _optional_team_catalog_entry(category: str, record: TeamSlug) -> dict:
     return entry
 
 
-def _optional_special_catalog_entry(channel) -> dict:
+def _optional_special_catalog_entry(channel, group: str = UK_SPORTS_GROUP_KEY) -> dict:
     entry = _special_catalog_entry(channel)
-    entry["catalog_group"] = UK_SPORTS_GROUP_KEY
+    entry["catalog_group"] = group
     return entry
 
 
@@ -407,6 +412,15 @@ def _optional_catalog_entries(groups: Iterable[str]) -> List[dict]:
             entries.extend(_optional_team_catalog_entry(league.key, record) for record in optional_records(league.key))
     if UK_SPORTS_GROUP_KEY in enabled:
         entries.extend(_optional_special_catalog_entry(channel) for channel in OPTIONAL_SPECIAL_CHANNELS)
+    if F1.key in enabled:
+        # Sky Sports F1 is also a UK channel: listed once, under the UK group
+        # when that is on too.
+        listed = {entry["catalog_key"] for entry in entries}
+        entries.extend(
+            _optional_special_catalog_entry(channel, F1.key)
+            for channel in F1_SPECIAL_CHANNELS
+            if f"special:{channel.key}" not in listed
+        )
     return entries
 
 

@@ -66,8 +66,21 @@ class ColdStartRaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(picked)
         self.assertEqual(harness.state["chan1"]["active_index"], 0)
 
-    async def test_race_skipped_with_fewer_than_two_candidates(self):
-        state = {"chan1": new_channel_state(name="T", candidates=[_candidate("http://x/y.m3u8", "A")])}
+    async def test_a_lone_candidate_is_probed_too(self):
+        # One healthy source (a YouTube live channel) starts on it at once
+        # instead of sitting on No Signal for STARTUP_PLACEHOLDER_SECONDS.
+        state = {"chan1": new_channel_state(name="T", candidates=[_candidate("https://cdn-b.example/y.m3u8", "A")])}
+        harness = _RaceHarness()
+        with patch.object(sessions, "stream_state", state), \
+                patch.object(sessions, "_session_fetch", harness.fake_fetch):
+            self.assertTrue(await sessions._race_cold_candidates("chan1", timeout=5.0))
+        state["chan1"]["candidates"] = [_candidate("https://cdn-c.example/y.m3u8", "A")]  # answers 403
+        with patch.object(sessions, "stream_state", state), \
+                patch.object(sessions, "_session_fetch", harness.fake_fetch):
+            self.assertFalse(await sessions._race_cold_candidates("chan1", timeout=5.0))
+
+    async def test_race_skipped_without_candidates(self):
+        state = {"chan1": new_channel_state(name="T", candidates=[])}
         with patch.object(sessions, "stream_state", state):
             self.assertFalse(await sessions._race_cold_candidates("chan1"))
 

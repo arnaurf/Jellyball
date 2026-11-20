@@ -218,6 +218,25 @@ def listing_allowed(text: str, non_english_fallback=None) -> bool:
     code = detect_language(text)
     if code is not None:
         return code in prefs
-    if prefs and prefs[0] == "eng" and non_english_fallback is not None:
-        return not non_english_fallback(text)
+    if prefs and prefs[0] == "eng" and non_english_fallback is not None and non_english_fallback(text):
+        # A region tag the viewer reads ("DAZN F1 ES" for a viewer who also
+        # picked Spanish) is not a reason to skip the listing.
+        return region_language(text) in prefs
     return True
+
+
+# Two-letter region suffixes aggregators put on channel names ("DAZN F1 ES",
+# "Canal+ F1 FR"), mapped to the language those feeds broadcast in. Matched
+# only as a delimited token, like the providers' own region-tag check.
+_REGION_CODES: Dict[str, str] = {
+    "es": "spa", "mx": "spa", "ar": "spa", "cl": "spa", "co": "spa", "pe": "spa", "ve": "spa", "uy": "spa",
+    "pt": "por", "br": "por", "fr": "fra", "de": "deu", "at": "deu", "it": "ita", "nl": "nld",
+    "pl": "pol", "tr": "tur", "gr": "ell", "ro": "ron", "hu": "hun", "cz": "ces", "ru": "rus", "se": "swe",
+}
+_REGION_RE = re.compile(r"(?:^|[\s(\[/_|:-])(" + "|".join(_REGION_CODES) + r")(?=$|[\s)\]/_|:-])")
+
+
+def region_language(text: str) -> Optional[str]:
+    """The language a channel name's region tag marks ("DAZN F1 ES" -> "spa"), or None."""
+    match = _REGION_RE.search(str(text or "").casefold())
+    return _REGION_CODES[match.group(1)] if match else None

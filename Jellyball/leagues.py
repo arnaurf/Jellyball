@@ -149,7 +149,30 @@ PWHL = League(
     has_schedule=False,
 )
 
-OPTIONAL_LEAGUES: Tuple[League, ...] = (MLS, EPL, UCL, CFL, PWHL)
+# Motorsport series have no teams to follow: each one's single "team" is the
+# series itself (league_seeds/<key>.json), whose channel picks up every session
+# of a race weekend (practice, qualifying, sprint, race) that the event
+# providers list. ESPN has no team schedule for them, so they search throughout
+# their season like CFL and PWHL. The Formula 1 group also carries the 24/7 F1
+# channels (sports_catalog.F1_SPECIAL_CHANNELS).
+F1 = League(
+    key="f1", espn_sport="racing", espn_league="f1", game_duration=timedelta(hours=2),
+    group_title="Formula 1", season_window=(2, 15, 12, 15),  # pre-season testing through the final race
+    has_schedule=False,
+)
+MOTOGP = League(
+    key="motogp", espn_sport="racing", espn_league="motogp", game_duration=timedelta(hours=2),
+    group_title="MotoGP", season_window=(2, 1, 11, 30),  # pre-season testing through the final race
+    has_schedule=False,
+)
+FORMULA_E = League(
+    key="formula_e", espn_sport="racing", espn_league="formula-e", game_duration=timedelta(hours=2),
+    group_title="Formula E", season_window=(11, 15, 8, 15),  # the season runs from December to the summer
+    has_schedule=False,
+)
+MOTORSPORT_LEAGUES: Tuple[League, ...] = (F1, MOTOGP, FORMULA_E)
+
+OPTIONAL_LEAGUES: Tuple[League, ...] = (MLS, EPL, UCL, CFL, PWHL, *MOTORSPORT_LEAGUES)
 OPTIONAL_LEAGUES_BY_KEY: Dict[str, League] = {league.key: league for league in OPTIONAL_LEAGUES}
 
 # Opt-in group of always-live channels (sports_catalog.OPTIONAL_SPECIAL_CHANNELS).

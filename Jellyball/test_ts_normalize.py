@@ -445,6 +445,21 @@ class TsNormalizeBasicsTests(unittest.TestCase):
         expected_base = (source_pcr + offset) % TIMESTAMP_MODULO
         self.assertEqual(actual_base, expected_base)
 
+    def test_an_image_with_a_stray_sync_byte_is_not_ts(self):
+        # A provider's poster (WebP) answered where a stream was expected: one
+        # 0x47 byte a packet or so before the end used to pass as a disguised
+        # TS segment, so a picture was verified as a live stream.
+        image = bytearray(b"RIFF\x00\x00\x00\x00WEBPVP8 " + bytes(range(256)).replace(b"\x47", b"\x00") * 30)
+        image[-300] = 0x47
+        self.assertEqual(find_ts_start(bytes(image)), -1)
+        # Two sync bytes a packet apart near the end are still not a stream.
+        image[-300 - 188] = 0x47
+        self.assertEqual(find_ts_start(bytes(image)), -1)
+        # Real TS behind the same prefix is found, and a single packet from
+        # byte 0 is still TS.
+        self.assertEqual(find_ts_start(bytes(image[:500]) + make_segment(video_pts=90000)), 500)
+        self.assertEqual(find_ts_start(make_segment(video_pts=90000)[:188]), 0)
+
     def test_junk_prefix_is_stripped(self):
         junk = b"\x89PNG\r\n\x1a\n" + b"\x00" * 13  # fake PNG signature + padding
         real = make_segment(video_pts=90000, audio_pts=90000)

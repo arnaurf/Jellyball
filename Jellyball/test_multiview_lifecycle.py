@@ -404,6 +404,12 @@ class HwEncoderFailureTests(MultiviewStateTestCase):
         self.assertTrue(multiview._looks_like_hw_encoder_failure(LOG_NO_NVIDIA_DRIVER, "nvenc"))
         self.assertTrue(multiview._looks_like_hw_encoder_failure(LOG_NVENC_SESSION_LIMIT, "nvenc"))
         self.assertTrue(multiview._looks_like_hw_encoder_failure(LOG_NVENC_DRIVER_TOO_OLD, "nvenc"))
+        # An ffmpeg built without NVENC (a laptop's distro build) fails while
+        # parsing the NVENC-only options: that must fall back to libx264 too.
+        no_nvenc_build = ["Unrecognized option 'rc'.", "Error splitting the argument list: Option not found"]
+        self.assertTrue(multiview._looks_like_hw_encoder_failure(no_nvenc_build, "nvenc"))
+        self.assertTrue(multiview._looks_like_hw_encoder_failure(["Unrecognized option 'look_ahead'."], "qsv"))
+        self.assertFalse(multiview._looks_like_hw_encoder_failure(["Unrecognized option 'reconnect_on_network_error'."], "nvenc"))
         # NVDEC's per-stream fallback, stream mapping and input errors are not NVENC failures.
         self.assertFalse(multiview._looks_like_hw_encoder_failure(LOG_NVDEC_FALLBACK_ONLY, "nvenc"))
         self.assertFalse(multiview._looks_like_hw_encoder_failure(
@@ -601,7 +607,7 @@ class ManualStopTests(MultiviewStateTestCase):
         state.stream_state["mv"] = multiview_data()
         registry = FakeRegistry()
 
-        async def slow_warm(members):
+        async def slow_warm(members, delays=None):
             await asyncio.sleep(10)
             return []
 
@@ -636,7 +642,7 @@ class ManualStopTests(MultiviewStateTestCase):
         data = multiview_data()
         state.stream_state["mv"] = data
 
-        async def warm_then_remove(members):
+        async def warm_then_remove(members, delays=None):
             state.stream_state.pop("mv", None)
             return [multiview._MultiviewInput(t, t, True, 0x0F, False) for t in members]
 

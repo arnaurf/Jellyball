@@ -12,6 +12,7 @@ import re
 import time
 import urllib.parse
 from collections import OrderedDict
+from contextvars import ContextVar
 from typing import Awaitable, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import httpx
@@ -139,6 +140,12 @@ _PROVIDER_SEARCH_LOOP = None
 # a network channel following a game) is served before a 24/7 linear search.
 GAME_SEARCH_PRIORITY = 0
 LINEAR_SEARCH_PRIORITY = 1
+
+# The catalog category ("nfl", "f1", ...) of the channel being searched, set by
+# master_scrape for the duration of one search ("" when unknown). Providers read
+# it through plugins.sdk.current_search_category() to scan pages that only list
+# one sport (Formula 1's schedule page) only when searching for that sport.
+SEARCH_CATEGORY: ContextVar[str] = ContextVar("jellyball_search_category", default="")
 
 
 class PrioritySemaphore:
@@ -890,11 +897,29 @@ async def master_scrape(
     search_terms: Optional[List[str]] = None,
     always_live: bool = False,
     on_partial: Optional[Callable[[List[dict]], Union[None, Awaitable[None]]]] = None,
+    category: str = "",
 ) -> List[dict]:
     """Search every provider for the team's streams. `on_partial`, if given, is
     called with each provider's playable results as they arrive (ranked), so an
     emergency rescrape can put a channel back on air without waiting for the
-    slowest provider's timeout. May be sync or async."""
+    slowest provider's timeout. May be sync or async. `category` is the
+    channel's catalog category: providers scan their pages for that sport too
+    (SEARCH_CATEGORY)."""
+    token = SEARCH_CATEGORY.set(str(category or "").casefold())
+    try:
+        return await _master_scrape(query, team_name, team_id, search_terms, always_live, on_partial)
+    finally:
+        SEARCH_CATEGORY.reset(token)
+
+
+async def _master_scrape(
+    query: str,
+    team_name: str,
+    team_id: str,
+    search_terms: Optional[List[str]],
+    always_live: bool,
+    on_partial: Optional[Callable[[List[dict]], Union[None, Awaitable[None]]]],
+) -> List[dict]:
     identity = canonical_team_name(team_name or query)
     if search_terms:
         search_terms = _usable_search_terms(search_terms)

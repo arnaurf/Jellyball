@@ -2,6 +2,7 @@
 channels, Multi-View, favorites)."""
 
 import asyncio
+import math
 import re
 import time
 import urllib.parse
@@ -62,12 +63,19 @@ from multiview import (
     _MULTIVIEW_PROCESSES,
     _MULTIVIEW_REFUSALS,
     _request_multiview_start,
+    _restart_multiview,
     _stop_multiview_manually,
+    default_audio_team_id,
+    member_offset,
+    multiview_member_delays,
     MULTIVIEW_LAYOUTS,
+    MULTIVIEW_OFFSET_LAYOUTS,
+    offset_to_member_delays,
 )
+from hls_session import MAX_PLAYLIST_DELAY_SECONDS
 from failover import _scrape_lifecycle_defaults, _session_on_placeholder, trigger_scrape
 from stream_extractor import quality_badge
-from channels import _add_manual_team, _remove_channel, _set_catalog_entry_enabled
+from channels import _add_manual_team, _add_youtube_channel, _remove_channel, _set_catalog_entry_enabled
 from tunables import _advanced_settings_html, _apply_tunable, _coerce_tunable, _TUNABLE_DEFAULTS, TUNABLES
 from version import __version__
 
@@ -304,6 +312,10 @@ async def dashboard(request: Request, tab: str = "channels", status: str = "", a
             "member_names": member_names,
             "audio_options": audio_options,
             "failure": failure,
+            "supports_offset": mv_data.get("layout") in MULTIVIEW_OFFSET_LAYOUTS and len(member_ids) == 2,
+            "offset": member_offset(mv_data),
+            "main_name": stream_state.get(member_ids[0], {}).get("name", member_ids[0]) if member_ids else "",
+            "second_name": stream_state.get(member_ids[1], {}).get("name", member_ids[1]) if len(member_ids) > 1 else "",
         })
 
     multiview = {
@@ -311,6 +323,7 @@ async def dashboard(request: Request, tab: str = "channels", status: str = "", a
         "ffmpeg_path": FFMPEG_PATH,
         "checkbox_list": multiview_checkbox_list,
         "rows": multiview_rows,
+        "max_offset": int(MAX_PLAYLIST_DELAY_SECONDS),
     }
 
     context = {
@@ -584,11 +597,40 @@ async def remove_team(team_id: str, auth: bool = Depends(verify_dashboard_auth))
     return RedirectResponse(url="/?tab=channels&status=team_removed", status_code=303)
 
 
+@router.post("/add_youtube")
+async def add_youtube(
+    name: str = Form(...),
+    youtube_url: str = Form(...),
+    auth: bool = Depends(verify_dashboard_auth),
+):
+    team_id = await _add_youtube_channel(name, youtube_url)
+    if team_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="A name and a YouTube live URL (youtube.com/watch?v=..., youtu.be/..., or a channel's /@handle) are required",
+        )
+    _spawn_background_task(trigger_jellyfin_refresh(), "refresh Jellyfin guide after YouTube channel creation")
+    return RedirectResponse(url="/?tab=channels&status=youtube_added", status_code=303)
+
+
+def _parse_offset(value: str) -> float:
+    try:
+        offset = float(str(value or "0").strip() or 0)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="The offset must be a number of seconds")
+    if not math.isfinite(offset) or abs(offset) > MAX_PLAYLIST_DELAY_SECONDS:
+        raise HTTPException(
+            status_code=400, detail=f"The offset must be between -{MAX_PLAYLIST_DELAY_SECONDS:.0f} and {MAX_PLAYLIST_DELAY_SECONDS:.0f} seconds",
+        )
+    return offset
+
+
 @router.post("/multiview/create")
 async def create_multiview(
     name: str = Form(...),
     layout: str = Form("grid_2x2"),
     member_team_ids: str = Form(...),
+    offset_seconds: str = Form("0"),
     auth: bool = Depends(verify_dashboard_auth),
 ):
     name = name.strip()
@@ -608,9 +650,13 @@ async def create_multiview(
         # INSERT OR REPLACE used to silently overwrite an existing Multi-View
         # (leaving its old ffmpeg running against the old members).
         raise HTTPException(status_code=409, detail="A channel with that name already exists")
-    active_audio_team_id = members[0]
+    active_audio_team_id = default_audio_team_id(layout, members)
+    offset = _parse_offset(offset_seconds)
+    member_delays = offset_to_member_delays(offset) if layout in MULTIVIEW_OFFSET_LAYOUTS else [0.0] * len(members)
     _forget_multiview_channel(channel_id)
-    await save_multiview_channel_async(channel_id, name, layout, members, active_audio_team_id)
+    await save_multiview_channel_async(
+        channel_id, name, layout, members, active_audio_team_id, member_delays=member_delays,
+    )
     stream_state[channel_id] = new_channel_state(
         name=name,
         query="",
@@ -622,6 +668,7 @@ async def create_multiview(
         layout=layout,
         member_team_ids=members,
         active_audio_team_id=active_audio_team_id,
+        member_delays=member_delays,
         **_scrape_lifecycle_defaults(),
     )
     _spawn_background_task(trigger_jellyfin_refresh(), "refresh Jellyfin guide after multiview creation")
@@ -680,6 +727,7 @@ async def set_multiview_audio(
     await save_multiview_channel_async(
         channel_id, data["name"], data["layout"], data["member_team_ids"], active_audio_team_id,
         data.get("tvg_id", ""), data.get("group_title", ""), data.get("logo_url", ""),
+        member_delays=multiview_member_delays(data),
     )
     # Every member's audio is already in its own output (stream-copied), so
     # switching the main channel's audio is just pointing its session at
@@ -688,6 +736,36 @@ async def set_multiview_audio(
     # continues seamlessly, a different codec becomes a clean discontinuity.
     SESSIONS.poke(channel_id)
     return RedirectResponse(url="/?tab=channels&status=multiview_audio_set", status_code=303)
+
+
+@router.post("/multiview/{channel_id}/set-offset")
+async def set_multiview_offset(
+    channel_id: str,
+    offset_seconds: str = Form("0"),
+    auth: bool = Depends(verify_dashboard_auth),
+):
+    """Sync a two-member Multi-View: a positive offset holds the second
+    member (the picture-in-picture corner) back that many seconds, a negative
+    one holds the first (the main feed) back. Restarts a running view."""
+    channel_id = _require_safe_channel_id(channel_id)
+    data = stream_state.get(channel_id)
+    if not data or data.get("type") != "multiview":
+        raise HTTPException(status_code=404, detail="Multi-View channel not found")
+    if data.get("layout") not in MULTIVIEW_OFFSET_LAYOUTS or len(data.get("member_team_ids") or []) != 2:
+        raise HTTPException(status_code=400, detail="Only two-channel Multi-Views can be offset")
+    delays = offset_to_member_delays(_parse_offset(offset_seconds))
+    if delays == multiview_member_delays(data):
+        return RedirectResponse(url="/?tab=channels&status=multiview_offset_set", status_code=303)
+    data["member_delays"] = delays
+    await save_multiview_channel_async(
+        channel_id, data["name"], data["layout"], data["member_team_ids"], data.get("active_audio_team_id", ""),
+        data.get("tvg_id", ""), data.get("group_title", ""), data.get("logo_url", ""),
+        member_delays=delays,
+    )
+    # The delay is part of each member's input URL: a running view restarts
+    # to pick it up (not counted toward the crash backoff).
+    await _restart_multiview(channel_id, "sync offset changed", count_toward_backoff=False)
+    return RedirectResponse(url="/?tab=channels&status=multiview_offset_set", status_code=303)
 
 
 @router.post("/favorite/{team_id}")

@@ -206,6 +206,13 @@ def log_site_state(provider_name: str, state: str, detail: str, page_url: str, l
         LOGGER.debug("provider %s: %s again (%s) host=%s", provider_name, message, detail, parts.netloc)
 
 
+def current_search_category() -> str:
+    """The catalog category ("nfl", "f1", ...) of the channel the current
+    search is for, or "" when the engine did not say (a 24/7 channel, a game a
+    network channel follows, a dry-run). Lower case."""
+    return _engine.SEARCH_CATEGORY.get()
+
+
 def get_setting(provider_name: str, key: str, default: Any = None) -> Any:
     """Read a provider's persisted config by provider name.
 
@@ -234,6 +241,10 @@ class Provider:
 
     name = "Base"
     categories: List[str] = []
+    # Pages that list one sport only, keyed by catalog category: scanned (after
+    # `categories`) only while searching for a channel of that category, so a
+    # team search never pays for, say, the Formula 1 schedule page.
+    category_paths: Dict[str, List[str]] = {}
     # False for providers that only list 24/7 linear channels and never carry a
     # team's game (e.g. a curated free-to-air playlist): team channels do not
     # search them, so a team can never take an unrelated linear channel.
@@ -259,7 +270,9 @@ class Provider:
             return []
         urls = [self.base_url.rstrip("/")]
         base_url = self.base_url.rstrip("/") + "/"
-        for cat in self.categories:
+        category = current_search_category()
+        sport_paths = list(self.category_paths.get(category, ())) if category else []
+        for cat in (*self.categories, *sport_paths):
             url = urllib.parse.urljoin(base_url, str(cat).lstrip("/"))
             if url not in urls:
                 urls.append(url)
@@ -299,11 +312,15 @@ class HtmlAggregatorProvider(Provider):
         categories: Optional[List[str]] = None,
         event_path_hints: Optional[List[str]] = None,
         event_path_patterns: Optional[List[str]] = None,
+        category_paths: Optional[Dict[str, List[str]]] = None,
     ):
         super().__init__()
         self.name = name.strip() or "Aggregator"
         self._default_base_url = (base_url or "").strip().rstrip("/")
         self.categories = list(categories or [])
+        self.category_paths = {
+            str(key).casefold(): list(paths) for key, paths in (category_paths or {}).items() if paths
+        }
         self.event_path_hints = tuple(hint.lower() for hint in (event_path_hints or []) if hint)
         # Regular expressions matched (case-insensitively) against an event
         # link's path, for sites whose event URLs carry no fixed word such as

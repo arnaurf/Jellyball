@@ -114,7 +114,7 @@ class LaneMigrationsRunTests(unittest.TestCase):
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         finally:
             conn.close()
-        self.assertEqual(versions, [1, 2, 100, 200, 201])
+        self.assertEqual(versions, [1, 2, 100, 200, 201, 500])
         self.assertTrue({"jellyfin_one", "sports_one", "sports_two"} <= tables)
 
 

@@ -585,6 +585,11 @@ async def verify_stream_live(
         if not sample:
             return False
         content_type = content_type.lower()
+        # A web page is never media (the player page, a YouTube embed, a block
+        # page), and its text is full of "G" (0x47, the TS sync byte), so it
+        # is ruled out before the sync scan below can be fooled by it.
+        if content_type.startswith(("text/html", "application/xhtml")) or sample.lstrip()[:1] == b"<":
+            return False
         # Some providers prefix real MPEG-TS with a fake image header to dodge
         # naive hotlink/probe checks; find_ts_start skips such a prefix and
         # locates the real aligned TS sync bytes, so check it before rejecting

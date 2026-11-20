@@ -6,6 +6,7 @@ per-member audio views.
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -47,7 +48,7 @@ from sessions import (
     _serve_session_playlist,
     SESSIONS,
 )
-from hls_session import SourceSpec
+from hls_session import MAX_PLAYLIST_DELAY_SECONDS, SourceSpec
 from network_safety import bounded_float, bounded_int
 
 
@@ -105,7 +106,14 @@ MULTIVIEW_SWEEP_INTERVAL = bounded_float(os.getenv("MULTIVIEW_SWEEP_INTERVAL", "
 MULTIVIEW_LAYOUTS = {
     "side_by_side_2": {"count": 2, "pane_w": 960, "pane_h": 1080, "xstack": "0_0|w0_0"},
     "grid_2x2": {"count": 4, "pane_w": 960, "pane_h": 540, "xstack": "0_0|w0_0|0_h0|w0_h0"},
+    # Picture-in-picture: member 0 fills the frame, member 1 sits in a window
+    # in the bottom-right corner (a third of the width, `margin` px from the
+    # edges). Its audio is the default, e.g. a YouTube live commentary over a
+    # race feed.
+    "pip": {"count": 2, "pane_w": 1920, "pane_h": 1080, "inset_w": 640, "inset_h": 360, "margin": 32},
 }
+# Layouts whose two members can be offset in time (set_member_offset).
+MULTIVIEW_OFFSET_LAYOUTS = frozenset(key for key, spec in MULTIVIEW_LAYOUTS.items() if spec["count"] == 2)
 
 _MULTIVIEW_PROCESSES: Dict[str, dict] = {}
 # Tracks recent spawn failures per channel so a client that keeps retrying a
@@ -324,6 +332,8 @@ def _build_xstack_filter(layout: str, member_count: int) -> str:
     irregular and broke the GOP-to-segment alignment)."""
     spec = MULTIVIEW_LAYOUTS[layout]
     pane_w, pane_h = spec["pane_w"], spec["pane_h"]
+    if "inset_w" in spec:
+        return _build_pip_filter(spec)
     parts = []
     labels = []
     for idx in range(member_count):
@@ -336,6 +346,57 @@ def _build_xstack_filter(layout: str, member_count: int) -> str:
     stack_inputs = "".join(f"[{label}]" for label in labels)
     parts.append(f"{stack_inputs}xstack=inputs={member_count}:layout={spec['xstack']},fps={MULTIVIEW_FPS}[vout]")
     return ";".join(parts)
+
+
+def _build_pip_filter(spec: dict) -> str:
+    """Member 0 full frame, member 1 scaled into the corner window on top."""
+    pane_w, pane_h = spec["pane_w"], spec["pane_h"]
+    inset_w, inset_h, margin = spec["inset_w"], spec["inset_h"], spec["margin"]
+    return ";".join([
+        f"[0:v]scale={pane_w}:{pane_h}:force_original_aspect_ratio=decrease,"
+        f"pad={pane_w}:{pane_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[v0]",
+        f"[1:v]scale={inset_w}:{inset_h}:force_original_aspect_ratio=decrease,"
+        f"pad={inset_w}:{inset_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[v1]",
+        f"[v0][v1]overlay=x=W-w-{margin}:y=H-h-{margin}:eof_action=pass,fps={MULTIVIEW_FPS}[vout]",
+    ])
+
+
+def multiview_member_delays(data: dict) -> List[float]:
+    """Seconds each member is held behind live, aligned with its members (0 = live)."""
+    members = data.get("member_team_ids") or []
+    raw = data.get("member_delays") or []
+    delays = []
+    for index in range(len(members)):
+        try:
+            value = float(raw[index]) if index < len(raw) else 0.0
+        except (TypeError, ValueError):
+            value = 0.0
+        delays.append(min(max(0.0, value), MAX_PLAYLIST_DELAY_SECONDS) if math.isfinite(value) else 0.0)
+    return delays
+
+
+def parse_member_delays(raw: object, count: int) -> List[float]:
+    """Stored member delays (a JSON list, '' for none) as `count` seconds values."""
+    try:
+        values = json.loads(raw) if isinstance(raw, str) and raw.strip() else (raw or [])
+    except (TypeError, ValueError):
+        values = []
+    if not isinstance(values, list):
+        values = []
+    return multiview_member_delays({"member_team_ids": [""] * count, "member_delays": values})
+
+
+def offset_to_member_delays(offset_seconds: float) -> List[float]:
+    """A two-member offset as member delays: positive holds the second member
+    (the corner window) back, negative holds the first (the main feed) back."""
+    offset = min(max(float(offset_seconds), -MAX_PLAYLIST_DELAY_SECONDS), MAX_PLAYLIST_DELAY_SECONDS)
+    return [round(max(0.0, -offset), 1), round(max(0.0, offset), 1)]
+
+
+def member_offset(data: dict) -> float:
+    """The inverse of offset_to_member_delays for a two-member Multi-View."""
+    delays = multiview_member_delays(data)
+    return round(delays[1] - delays[0], 1) if len(delays) == 2 else 0.0
 
 
 def _build_multiview_audio_filter(audio_presence: List[bool]) -> str:
@@ -384,12 +445,16 @@ def _internal_base_url() -> str:
     return f"http://{host}:{config.PORT}"
 
 
-def _multiview_input_url(team_id: str) -> str:
+def _multiview_input_url(team_id: str, delay: float = 0.0) -> str:
     if team_id not in stream_state:
         # A member that was deleted shows the "No Signal" pane instead of
         # breaking the whole Multi-View.
         team_id = PLACEHOLDER_SESSION_ID
-    return f"{_internal_base_url()}/stream/{team_id}.m3u8"
+    url = f"{_internal_base_url()}/stream/{team_id}.m3u8"
+    if delay > 0 and team_id != PLACEHOLDER_SESSION_ID:
+        # The member's session serves its playlist this far behind live.
+        url += f"?delay={delay:g}"
+    return url
 
 
 def _build_multiview_ffmpeg_args(
@@ -424,12 +489,13 @@ def _build_multiview_ffmpeg_args(
         [has_audio is True for has_audio in audio_presence] if audio_presence else [True] * len(member_team_ids)
     )
     sources = list(input_ids) if input_ids else list(member_team_ids)
+    delays = multiview_member_delays(data)
 
     loglevel = os.getenv("MULTIVIEW_FFMPEG_LOGLEVEL", "warning").strip() or "warning"
     args: List[str] = ["-y", "-hide_banner", "-loglevel", loglevel]
     # Progress lines only when debugging with a verbose level.
     args += ["-stats", "-stats_period", "5"] if loglevel in ("info", "verbose", "debug") else ["-nostats"]
-    for source_id in sources:
+    for index, source_id in enumerate(sources):
         if hw_decode:
             # Decode on the GPU as well (frames are downloaded for the CPU
             # scale/pad/xstack filters). ffmpeg falls back to software per
@@ -449,7 +515,7 @@ def _build_multiview_ffmpeg_args(
             "-reconnect_delay_max", "5",
             "-rw_timeout", "15000000",
             "-thread_queue_size", "1024",
-            "-i", _multiview_input_url(source_id),
+            "-i", _multiview_input_url(source_id, delays[index] if index < len(delays) else 0.0),
         ]
 
     filter_graph = ";".join(part for part in (
@@ -583,9 +649,13 @@ _HW_ENCODER_MARKERS = {
         "h264_nvenc", "hevc_nvenc", "openencodesessionex", "nvenc", "no capable devices found",
         "cannot load nvcuda", "cannot load libcuda", "nvenc api version",
         "driver does not support the required nvenc api version",
+        # An ffmpeg built without NVENC rejects its private options while
+        # parsing the command line, before any encoder is named.
+        "unrecognized option 'rc'", "unrecognized option 'forced-idr'",
     ),
     "qsv": (
         "h264_qsv", "hevc_qsv", "qsv", "mfx session", "libmfx", "libvpl", "device creation failed",
+        "unrecognized option 'look_ahead'",
     ),
 }
 _HW_ENCODER_NAMES = {"nvenc": ("h264_nvenc", "hevc_nvenc"), "qsv": ("h264_qsv", "hevc_qsv")}
@@ -670,6 +740,14 @@ def _multiview_encoder_plan(now: Optional[float] = None) -> Tuple[str, bool]:
     return encoder, MULTIVIEW_HWACCEL == "nvenc" and not cuda_broken
 
 
+def default_audio_team_id(layout: str, members: List[str]) -> str:
+    """Picture-in-picture plays the corner window's audio (the commentary over
+    the main feed); every other layout starts on the first member's."""
+    if not members:
+        return ""
+    return members[1] if layout == "pip" and len(members) > 1 else members[0]
+
+
 def _multiview_audio_index(data: dict) -> int:
     members = data.get("member_team_ids") or []
     active = data.get("active_audio_team_id") or (members[0] if members else "")
@@ -689,7 +767,9 @@ class _MultiviewInput(NamedTuple):
     standin: bool               # an existing member replaced by the placeholder for this run
 
 
-async def _warm_multiview_members(member_team_ids: List[str]) -> List[_MultiviewInput]:
+async def _warm_multiview_members(
+    member_team_ids: List[str], delays: Optional[List[float]] = None,
+) -> List[_MultiviewInput]:
     """Start every member's channel session in parallel and wait for each to
     have a playable window before ffmpeg opens them one after another (four
     cold members used to blow the startup timeout).
@@ -701,11 +781,21 @@ async def _warm_multiview_members(member_team_ids: List[str]) -> List[_Multiview
     only warmed once some member is still pending halfway through the wait,
     and the watchdog swaps the real member in once it is live."""
     session_ids = [team_id if team_id in stream_state else PLACEHOLDER_SESSION_ID for team_id in member_team_ids]
+    delays = list(delays or [])
+    delay_by_session = {
+        session_id: delays[index]
+        for index, session_id in enumerate(session_ids)
+        if index < len(delays) and delays[index] > 0 and session_id != PLACEHOLDER_SESSION_ID
+    }
     waits: Dict[str, asyncio.Future] = {}
     for session_id in session_ids:
         if session_id not in waits:
             session = SESSIONS.get(session_id)
             session.touch()
+            if session_id in delay_by_session:
+                # Start keeping history now, so the delay builds up while
+                # the other members warm.
+                session.request_delay(delay_by_session[session_id])
             waits[session_id] = asyncio.ensure_future(session.wait_ready(MULTIVIEW_MEMBER_WARM_TIMEOUT))
     def is_ready(session_id: str) -> bool:
         wait = waits.get(session_id)
@@ -730,6 +820,23 @@ async def _warm_multiview_members(member_team_ids: List[str]) -> List[_Multiview
         for wait in waits.values():
             if not wait.done():
                 wait.cancel()
+
+    # A delayed member also needs `delay` seconds of history before its
+    # delayed playlist can open (the session starts from its ~30 s window).
+    delayed = [session_id for session_id in delay_by_session if is_ready(session_id)]
+    if delayed:
+        delayed_ok = await asyncio.gather(*(
+            SESSIONS.get(session_id).wait_delayed_ready(
+                delay_by_session[session_id], delay_by_session[session_id] + MULTIVIEW_MEMBER_WARM_TIMEOUT,
+            )
+            for session_id in delayed
+        ))
+        for session_id, ok in zip(delayed, delayed_ok):
+            if not ok:
+                LOGGER.warning(
+                    "Multi-View member %s could not buffer its %.0fs delay in time", session_id, delay_by_session[session_id],
+                )
+                waits.pop(session_id, None)
 
     standins = {
         index for index, session_id in enumerate(session_ids)
@@ -801,7 +908,7 @@ async def _spawn_multiview(channel_id: str, data: dict) -> None:
 
 async def _start_multiview_run(channel_id: str, data: dict) -> None:
     global _MULTIVIEW_RUN_COUNTER, _HW_ENCODER_FAILED_AT, _CUDA_DECODE_FAILED_AT
-    inputs = await _warm_multiview_members(list(data["member_team_ids"]))
+    inputs = await _warm_multiview_members(list(data["member_team_ids"]), multiview_member_delays(data))
     if not _multiview_spawn_wanted(channel_id, data):
         LOGGER.info("Multi-View channel=%s was removed or stopped while warming up; not starting", channel_id)
         return

@@ -19,6 +19,7 @@ from state import _spawn_background_task, is_multiview, stream_state
 from db import log_metric_event_async, update_team_meta_async
 import scrapers
 from scrapers import master_scrape
+import youtube_live
 from catalog import (
     fetch_espn_team_schedule,
     is_in_season,
@@ -354,7 +355,10 @@ async def _trigger_scrape_unlocked(team_id: str, force: bool = False):
 
     # A network channel (ABC, CBS, ESPN, ...) shows the game it carries, not
     # whatever its linear stream happens to be (network_games).
-    game = network_games.current_game(current, stream_state) if always_live else None
+    game = (
+        network_games.current_game(current, stream_state)
+        if always_live and not youtube_live.is_youtube_channel(current) else None
+    )
     if network_games.network_key(current) is not None:
         game_id = game.event_id if game else ""
         if game_id != str(current.get("network_game_id") or ""):
@@ -396,6 +400,8 @@ async def _trigger_scrape_unlocked(team_id: str, force: bool = False):
     previous_candidates = current.get("candidates", [])
     if game is not None:
         new_candidates = await _scrape_network_game(team_id, current, game, query, team_name)
+    elif youtube_live.is_youtube_channel(current):
+        new_candidates = await youtube_live.resolve_live_stream(query, team_name)
     else:
         new_candidates = await master_scrape(
             query,
@@ -403,6 +409,7 @@ async def _trigger_scrape_unlocked(team_id: str, force: bool = False):
             team_id=team_id,
             search_terms=current.get("search_terms") or None,
             always_live=always_live,
+            category=category,
         )
     current = stream_state.get(team_id)
     if current is None:
@@ -820,14 +827,18 @@ async def emergency_rescrape(team_id: str) -> None:
             LOGGER.info("Emergency rescrape found streams early team=%s count=%d", team_id, len(streams))
 
     try:
-        candidates = await master_scrape(
-            data["query"],
-            team_name=data.get("name", team_id),
-            team_id=team_id,
-            search_terms=data.get("search_terms") or None,
-            always_live=bool(data.get("always_live")),
-            on_partial=_install_partial,
-        )
+        if youtube_live.is_youtube_channel(data):
+            candidates = await youtube_live.resolve_live_stream(data["query"], data.get("name", team_id))
+        else:
+            candidates = await master_scrape(
+                data["query"],
+                team_name=data.get("name", team_id),
+                team_id=team_id,
+                search_terms=data.get("search_terms") or None,
+                always_live=bool(data.get("always_live")),
+                on_partial=_install_partial,
+                category=str(data.get("category") or ""),
+            )
         async with _team_state_lock(team_id):
             current = stream_state.get(team_id)
             if current is not None:

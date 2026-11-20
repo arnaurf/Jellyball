@@ -31,7 +31,9 @@ continuous stream instead of a stall or a reconnect.
 - **Pick teams, not URLs.** Choose exact NFL, MLB, NHL, NBA and college teams
   from dashboard toggles. Identity-aware matching rejects look-alikes (Eastern
   Michigan vs. Michigan State, Rays vs. Buccaneers).
-- **Multi-View.** Combine 2 or 4 channels into one grid (side-by-side or 2×2)
+- **Multi-View.** Combine 2 or 4 channels into one grid (side-by-side, 2×2,
+  or picture-in-picture with a corner window, e.g. a YouTube live commentary
+  synced to the race with an adjustable delay)
   with NVENC/QSV hardware encoding, and switch commentary audio per member.
 - **Always-live channels.** ESPN, NFL RedZone, FOX Sports, CBS Sports Network
   and more, with stable `tvg-id`s for mapping to an external EPG.

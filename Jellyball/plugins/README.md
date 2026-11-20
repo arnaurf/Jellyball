@@ -34,6 +34,13 @@ logged and shown on the dashboard's Providers card.
   (or `None` when no browser is available).
 - `get_setting(provider_name, key)`: read provider config (`"enabled"`,
   `"priority"`, `"base_url"`) from the existing `provider_settings` store.
+- `category_paths` (attribute, and an `HtmlAggregatorProvider` constructor
+  argument): pages that list one sport only, keyed by catalog category, e.g.
+  `{"f1": ["/f1streams"], "motogp": ["/motogpstreams"]}`. They are scanned
+  after `categories`, and only while searching for a channel of that category,
+  so a team search never fetches them.
+- `current_search_category()`: the catalog category (`"nfl"`, `"f1"`, ...) of
+  the channel being searched, or `""` when the engine did not say.
 
 ## Manifest format
 

@@ -14,4 +14,7 @@ class MethStreamsScraper(HtmlAggregatorProvider):
             # (/live/<sport>/<slug>) are listed on these pages (issue #49).
             ["/nflstreams", "/nbastreams", "/nhlstreams", "/mlbstreams", "/cfbstreams", "/ncaabstreams", "/soccerstreams"],
             ["/game/", "/match/", "/live/"],
+            # Read only while searching for that series' channel; its events
+            # are /live/<sport>/<slug> like every other sport's.
+            category_paths={"f1": ["/f1streams"], "motogp": ["/motogpstreams"]},
         )

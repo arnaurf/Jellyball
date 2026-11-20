@@ -6,6 +6,7 @@ those few calls use function-level (late) imports - see _resolve_session_source.
 """
 
 import asyncio
+import math
 import os
 import re
 import time
@@ -296,7 +297,10 @@ async def _race_cold_candidates(channel_id: str, limit: int = 3, timeout: float 
     """Cold-start: fetch the top candidates' playlists in parallel and make the
     first healthy one (HTTP 200 with HLS content) the active candidate, instead
     of failing over serially through dead ones. Returns True when a healthy
-    candidate was selected. Best-effort: failures leave active_index alone."""
+    candidate was selected. Best-effort: failures leave active_index alone.
+    A lone candidate is probed too: losing the race starts the No Signal
+    placeholder for STARTUP_PLACEHOLDER_SECONDS, which a channel with one
+    healthy source (a YouTube live channel) must not sit through."""
     from failover import _team_state_lock
 
     async with _team_state_lock(channel_id):
@@ -304,14 +308,14 @@ async def _race_cold_candidates(channel_id: str, limit: int = 3, timeout: float 
         if not data or data.get("type") == "multiview":
             return False
         candidates = list(data.get("candidates") or [])[:limit]
-        if len(candidates) < 2:
+        if not candidates:
             return False
         specs = []
         for candidate in candidates:
             spec = _candidate_source(candidate)
             if spec is not None:
                 specs.append((candidate_source_key(candidate), spec))
-    if len(specs) < 2:
+    if not specs:
         return False
 
     async def _probe(key: tuple, spec: SourceSpec) -> Optional[tuple]:
@@ -365,8 +369,12 @@ async def _race_cold_candidates(channel_id: str, limit: int = 3, timeout: float 
         return False
 
 
-async def _serve_session_playlist(session_id: str, segment_prefix: str, legacy=None) -> Response:
+async def _serve_session_playlist(session_id: str, segment_prefix: str, legacy=None, delay: float = 0.0) -> Response:
+    """`delay` > 0 serves the playlist that many seconds behind live (a
+    Multi-View member synced to another one); 503 until enough history."""
     session = SESSIONS.get(session_id)
+    if delay > 0:
+        delay = session.request_delay(delay)
     cold = not session.is_running and not session.window and session.state != "sample_aes"
     tune_started = time.monotonic()
     if cold:
@@ -415,7 +423,13 @@ async def _serve_session_playlist(session_id: str, segment_prefix: str, legacy=N
         )
     if cold:
         diaglog.log_tune_in_ready(session_id, session, time.monotonic() - tune_started)
-    return _hls_response(session.render_playlist(segment_prefix))
+    if delay > 0 and not session.delayed_ready(delay):
+        return Response(
+            status_code=503,
+            content="Delayed stream is buffering",
+            headers={"Retry-After": "2", "Cache-Control": "no-cache"},
+        )
+    return _hls_response(session.render_playlist(segment_prefix, delay=delay))
 
 
 def _serve_session_segment(session_id: str, seq: int) -> Response:
@@ -453,4 +467,16 @@ async def _serve_channel_playlist(team_id: str, request: Request) -> Response:
     async def sample_aes():
         return await _sample_aes_proxy_stream(team_id, request)
 
-    return await _serve_session_playlist(team_id, f"{team_id}/seg/", legacy=None if data.get("type") == "multiview" else sample_aes)
+    return await _serve_session_playlist(
+        team_id, f"{team_id}/seg/", legacy=None if data.get("type") == "multiview" else sample_aes,
+        delay=_requested_delay(request),
+    )
+
+
+def _requested_delay(request: Request) -> float:
+    """The `?delay=<seconds>` of a playlist request (0 when absent or invalid)."""
+    try:
+        delay = float(request.query_params.get("delay") or 0)
+    except ValueError:
+        return 0.0
+    return delay if math.isfinite(delay) and delay > 0 else 0.0

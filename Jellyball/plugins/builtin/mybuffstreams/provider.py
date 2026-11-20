@@ -14,5 +14,7 @@ class MyBuffStreamsScraper(HtmlAggregatorProvider):
                 "/cfbstreams2", "/nflstreams2", "/mlb-live-streams",
                 "/nbastreams2", "/nhlstreams2", "/soccer-live-streams",
             ],
-            ["/cfb/", "/mlb/", "/nfl/", "/nba/", "/nhl/", "/title-game/", "/watch/", "/soccer/"],
+            ["/cfb/", "/mlb/", "/nfl/", "/nba/", "/nhl/", "/title-game/", "/watch/", "/soccer/", "/f1/", "/motogp/"],
+            # Read only while searching for that series' channel.
+            category_paths={"f1": ["/f1-live-streams"], "motogp": ["/motogp-live-streams"]},
         )

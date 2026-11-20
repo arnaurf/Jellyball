@@ -333,7 +333,8 @@ def init_db():
                          active_audio_team_id TEXT DEFAULT '',
                          tvg_id TEXT DEFAULT '',
                          group_title TEXT DEFAULT '',
-                         logo_url TEXT DEFAULT '')''')
+                         logo_url TEXT DEFAULT '',
+                         member_delays TEXT DEFAULT '')''')
         conn.execute("CREATE INDEX IF NOT EXISTS idx_provider_performance_provider_ts ON provider_performance (provider, timestamp)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_stream_events_provider ON stream_events (provider)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_stream_events_timestamp ON stream_events (timestamp)")
@@ -628,12 +629,14 @@ def save_multiview_channel(
     tvg_id: str = "",
     group_title: str = "",
     logo_url: str = "",
+    member_delays: Optional[List[float]] = None,
 ) -> None:
     with _db_session() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO multiview_channels
-            (channel_id, name, layout, member_team_ids, active_audio_team_id, tvg_id, group_title, logo_url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (channel_id, name, layout, member_team_ids, active_audio_team_id, tvg_id, group_title, logo_url,
+             member_delays)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 channel_id,
                 name,
@@ -643,6 +646,7 @@ def save_multiview_channel(
                 tvg_id,
                 group_title,
                 logo_url,
+                json.dumps(list(member_delays)) if member_delays and any(member_delays) else "",
             ),
         )
         conn.commit()
@@ -674,6 +678,7 @@ class MultiviewRow(NamedTuple):
     tvg_id: str
     group_title: str
     logo_url: str
+    member_delays: str = ""  # JSON list of seconds, '' = every member live
 
 
 def load_multiview_channels() -> List[MultiviewRow]:
@@ -681,7 +686,7 @@ def load_multiview_channels() -> List[MultiviewRow]:
         cursor = conn.cursor()
         cursor.execute(
             """SELECT channel_id, name, layout, member_team_ids, active_audio_team_id,
-                      tvg_id, group_title, logo_url
+                      tvg_id, group_title, logo_url, member_delays
                FROM multiview_channels"""
         )
         return [MultiviewRow._make(row) for row in cursor.fetchall()]

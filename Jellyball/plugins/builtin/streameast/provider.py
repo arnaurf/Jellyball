@@ -16,4 +16,7 @@ class StreamEastScraper(HtmlAggregatorProvider):
             # Event pages are /<league>/<teams-slug>/<numeric id>, e.g.
             # /nfl/baltimore-ravens-jacksonville-jaguars/49229088.
             event_path_patterns=[r"^/[a-z0-9-]+/[a-z0-9]+(?:-[a-z0-9]+)+/\d+/?$"],
+            # Read only while searching for that series' channel; its events
+            # (/f1/<grand-prix-slug>/<id>) fit the pattern above.
+            category_paths={"f1": ["/f1streams4"], "motogp": ["/motogpstreams4"]},
         )

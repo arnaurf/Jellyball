@@ -67,6 +67,40 @@ class StreamProbeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result)
 
+    # --- Things a provider passes off as a stream ---------------------------
+
+    async def _verify_body(self, content_type: str, body: bytes, url: str = "https://media.example.test/live"):
+        reject: dict = {}
+
+        def handler(request):
+            return httpx.Response(200, headers={"content-type": content_type}, content=body, request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await verify_stream_live(client, url, reject=reject), reject.get("reason", "")
+
+    async def test_a_web_page_is_not_a_stream_even_with_ts_like_text(self):
+        # "G" is 0x47, the TS sync byte: a page with three of them 188 bytes
+        # apart must not pass (a YouTube embed was verified as a live stream).
+        row = b"G" + b"a" * 187
+        page = b"<!DOCTYPE html><html><body>" + row * 20 + b"</body></html>"
+        ok, reason = await self._verify_body("text/html; charset=utf-8", page)
+        self.assertFalse(ok)
+        self.assertIn("not_media", reason)
+        ok, _ = await self._verify_body("application/octet-stream", page)
+        self.assertFalse(ok)
+
+    async def test_a_poster_image_is_not_a_stream(self):
+        image = bytearray(b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 4000)
+        image[-300] = 0x47  # one stray sync byte near the end
+        ok, reason = await self._verify_body("image/webp", bytes(image))
+        self.assertFalse(ok)
+        self.assertIn("image/webp", reason)
+
+    async def test_ts_disguised_as_an_image_still_passes(self):
+        packets = (b"\x47" + b"\x00" * 187) * 20
+        ok, _ = await self._verify_body("image/png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 13 + packets)
+        self.assertTrue(ok)
+
     # --- P10(b): frozen vs advancing media sequence -------------------------
 
     async def test_frozen_sequence_fails_only_after_threshold(self):

@@ -115,8 +115,16 @@ def find_ts_start(data: bytes, probe_packets: int = 3) -> int:
     for offset in range(limit):
         if data[offset] != SYNC_BYTE:
             continue
-        needed = min(probe_packets, (len(data) - offset) // TS_PACKET_SIZE)
-        if needed < 1:
+        packets_left = (len(data) - offset) // TS_PACKET_SIZE
+        if packets_left >= probe_packets:
+            needed = probe_packets
+        elif offset == 0 and packets_left >= 1:
+            # Data that is TS from its first byte but shorter than the probe.
+            needed = packets_left
+        else:
+            # Never fewer packets after a skipped prefix: one 0x47 byte with a
+            # packet's worth of data after it is in nearly every image, which
+            # made a stream's poster (a WebP) pass as a disguised TS segment.
             return -1
         if all(data[offset + k * TS_PACKET_SIZE] == SYNC_BYTE for k in range(needed)):
             return offset

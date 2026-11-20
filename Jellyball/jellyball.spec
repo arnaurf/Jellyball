@@ -171,6 +171,7 @@ hiddenimports = [
     "multiview",
     "failover",
     "channels",
+    "youtube_live",
     "epg",
     "tunables",
     "jellyfin_client",
@@ -250,6 +251,8 @@ for package_name in [
     "lxml",
     "cryptography",
     "dns",
+    # YouTube live channels: yt-dlp imports its extractors lazily.
+    "yt_dlp",
 ]:
     try:
         package_datas, package_binaries, package_hiddenimports = collect_all(package_name)

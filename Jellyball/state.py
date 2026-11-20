@@ -77,6 +77,7 @@ class ChannelState(TypedDict, total=False):
     layout: str
     member_team_ids: List[str]
     active_audio_team_id: str
+    member_delays: List[float]  # seconds each member is held behind live
 
 
 stream_state: Dict[str, ChannelState] = {}

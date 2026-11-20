@@ -400,13 +400,30 @@ function updateBulkTeamIds() {
     document.getElementById('bulk-team-ids').value = ids;
     return ids;
 }
+// Multi-View panes follow the order the channels were ticked in (the
+// Picture-in-picture main feed first, then its corner window).
+let multiviewSelectionOrder = [];
+function trackMultiviewSelection(box) {
+    const id = box.dataset.teamId;
+    multiviewSelectionOrder = multiviewSelectionOrder.filter(item => item !== id);
+    if (box.checked) multiviewSelectionOrder.push(id);
+}
+function updateMultiviewOffsetField() {
+    const layout = document.getElementById('multiview-layout');
+    const field = document.getElementById('multiview-offset-field');
+    if (layout && field) field.style.display = layout.value === 'grid_2x2' ? 'none' : 'flex';
+}
 function updateMultiviewTeamIds() {
-    const checked = document.querySelectorAll('.multiview-member-select:checked');
-    if (checked.length !== 2 && checked.length !== 4) {
-        showToast('Select exactly 2 or 4 channels for a Multi-View', 3000, true);
+    const checked = Array.from(document.querySelectorAll('.multiview-member-select:checked')).map(c => c.dataset.teamId);
+    const layout = document.getElementById('multiview-layout');
+    const wanted = layout && layout.value === 'grid_2x2' ? 4 : 2;
+    if (checked.length !== wanted) {
+        showToast(`Select exactly ${wanted} channels for this layout`, 3000, true);
         return false;
     }
-    document.getElementById('multiview-team-ids').value = Array.from(checked).map(c => c.dataset.teamId).join(',');
+    const ordered = multiviewSelectionOrder.filter(id => checked.includes(id));
+    checked.forEach(id => { if (!ordered.includes(id)) ordered.push(id); });
+    document.getElementById('multiview-team-ids').value = ordered.join(',');
     return true;
 }
 function selectAllTeams() {
@@ -573,6 +590,8 @@ window.addEventListener('DOMContentLoaded', () => {
         'multiview_stopped': '✅ Multi-View stopped',
         'multiview_started': '✅ Multi-View started',
         'multiview_audio_set': '✅ Multi-View audio updated',
+        'multiview_offset_set': '✅ Multi-View delay updated',
+        'youtube_added': '✅ YouTube channel added',
         'advanced_saved': '✅ Advanced settings saved',
         'advanced_invalid': '❌ A value was not a number; nothing after it was saved',
     };

@@ -51,7 +51,7 @@ class TypedRowTests(unittest.TestCase):
         ))
         self.assertEqual(db.MultiviewRow._fields, (
             "channel_id", "name", "layout", "member_team_ids", "active_audio_team_id", "tvg_id", "group_title",
-            "logo_url",
+            "logo_url", "member_delays",
         ))
 
     def test_loaded_rows_are_named_and_still_plain_tuples(self):
@@ -71,7 +71,7 @@ class TypedRowTests(unittest.TestCase):
         self.assertIsInstance(mv, db.MultiviewRow)
         self.assertEqual((mv.channel_id, mv.layout, mv.member_team_ids, mv.active_audio_team_id),
                          ("mv", "side_by_side_2", '["nfl_buf", "x"]', "nfl_buf"))
-        self.assertEqual(mv, ("mv", "Grid", "side_by_side_2", '["nfl_buf", "x"]', "nfl_buf", "mv", "Multi-View", ""))
+        self.assertEqual(mv, ("mv", "Grid", "side_by_side_2", '["nfl_buf", "x"]', "nfl_buf", "mv", "Multi-View", "", ""))
 
     def test_null_columns_still_arrive_as_none(self):
         with patch.object(db, "DB_FILE", self.db_path):

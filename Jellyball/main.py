@@ -76,6 +76,7 @@ from multiview import (
     multiview_idle_monitor,
     multiview_output_sweeper,
     multiview_watchdog,
+    parse_member_delays,
 )
 from failover import (
     _SCRAPE_IN_FLIGHT,
@@ -266,6 +267,7 @@ async def lifespan(app: FastAPI):
             active_audio_team_id=(
                 mv.active_audio_team_id if mv.active_audio_team_id in member_team_ids else member_team_ids[0]
             ),
+            member_delays=parse_member_delays(mv.member_delays, len(member_team_ids)),
             **_scrape_lifecycle_defaults(),
         )
 

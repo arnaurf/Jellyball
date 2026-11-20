@@ -178,9 +178,31 @@ Michigan Wolverines football is `ncaaf_130`, men's basketball is
 
 ## Multi-View
 
-A Multi-View channel composites 2 (side-by-side) or 4 (2x2 grid) existing
-channels into one server-side ffmpeg-encoded feed, created from the
-**Channels** tab.
+A Multi-View channel composites 2 (side-by-side or picture-in-picture) or 4
+(2x2 grid) existing channels into one server-side ffmpeg-encoded feed, created
+from the **Channels** tab. Panes follow the order you tick the channels in.
+
+**Picture-in-picture.** The first channel fills the screen and the second
+plays in a window in the bottom-right corner, with the corner's audio by
+default (switchable with **Set Audio** like any Multi-View). A typical use is
+a race feed with a YouTube live commentary in the corner.
+
+**YouTube live channels.** The **YouTube Live Channels** card adds a channel
+from a YouTube live link (`youtube.com/watch?v=...`, `youtu.be/...`) or a
+channel link (`youtube.com/@name`, which follows that channel's current live
+stream). Jellyball asks `yt-dlp` for the stream's HLS playlist (best quality, with its audio) and
+plays it like any other channel; the playlist link expires after a few hours
+and is resolved again on the next rescrape or failover. An off-air channel
+shows No Signal until it goes live. YouTube changes often: if resolving stops
+working, update `yt-dlp` (`pip install -U yt-dlp`).
+
+**Syncing two channels.** A two-channel Multi-View has a delay: a positive
+value holds the second channel (the corner) back that many seconds, a
+negative one holds the first (the main feed) back, up to 120 s. Use it when
+the commentary runs ahead of or behind the picture. The delayed channel's
+session keeps that much extra stream in memory (about 4 MB per 10 s at
+3 Mbit/s) and the Multi-View waits for it to fill before starting. Changing
+the delay restarts a running Multi-View.
 
 **ffmpeg resolution order** (first one found wins): `MULTIVIEW_FFMPEG_PATH`
 → `FFMPEG_PATH` → **Jellyfin's own ffmpeg**, if Jellyfin is installed on the
@@ -443,6 +465,7 @@ Webhook delivery retries up to twice (honoring `Retry-After`, capped at
 | `MULTIVIEW_MEMBER_WARM_TIMEOUT` | `20` | Per-member warm-up timeout |
 | `MAX_CONCURRENT_MULTIVIEW` | `3` | Max Multi-View grids running at once |
 | `MULTIVIEW_AUDIO_CHANNELS` | `1` (on) | Expose per-member audio as separate Jellyfin channels |
+| `YOUTUBE_RESOLVE_TIMEOUT` | `45` | Max seconds yt-dlp may take to resolve a YouTube live channel |
 | `MULTIVIEW_BACKOFF_BASE_SECONDS` | `15` | Spawn-failure retry backoff base |
 | `MULTIVIEW_BACKOFF_MAX_SECONDS` | `300` | Spawn-failure retry backoff cap |
 | `MULTIVIEW_RESTART_WINDOW_SECONDS` | `600` | Watchdog restart-burst rolling window |

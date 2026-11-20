@@ -86,7 +86,7 @@
     <details class="catalog-group" id="optional-catalog-groups">
         <summary><span>More leagues &amp; channel groups (opt-in)</span><span class="badge">{{ optional_catalog_groups | selectattr('enabled') | list | length }} on</span></summary>
         <form action="/catalog/optional-groups" method="post" style="padding: 0.5rem 0;">
-            <p class="hint-text">Show these in the catalog below. Turning a group off only hides it here; channels you already enabled from it keep running until you disable them. CFL and PWHL have no schedule source, so their channels keep searching throughout their season.</p>
+            <p class="hint-text">Show these in the catalog below. Turning a group off only hides it here; channels you already enabled from it keep running until you disable them. CFL, PWHL and Formula 1 have no schedule source, so their channels keep searching throughout their season. Formula 1 adds one channel for every race-weekend session plus the 24/7 F1 channels.</p>
             <div class="catalog-grid">
                 {% for group in optional_catalog_groups %}
                 <div class="catalog-item">
@@ -146,6 +146,15 @@
 <input id="channel-filter" class="channel-filter" type="text" placeholder="Filter your channels..." oninput="filterChannels(this.value)" aria-label="Filter enabled channels">
 <div id="channel-filter-empty" class="card" style="display: none; text-align: center; color: var(--text-muted);">No channels match &ldquo;<span id="channel-filter-query"></span>&rdquo;. <button type="button" onclick="clearChannelFilter()" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.8rem; background: var(--surface-3); border: 1px solid var(--border-strong); border-radius: 6px; cursor: pointer;">Clear filter</button></div>
 {% endif %}
+<div class="card" id="youtube-section">
+    <h3 style="margin-top: 0;">▶️ YouTube Live Channels</h3>
+    <p class="hint-text">Add a YouTube live stream as a channel (e.g. a live commentary to put in a Picture-in-picture corner). Paste the video link, or a channel's link (youtube.com/@name) to always follow its current live stream. Off-air channels are checked again on every rescrape.</p>
+    <form action="/add_youtube" method="post" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+        <input type="text" name="name" placeholder="Channel name (e.g. F1 Commentary)" required maxlength="120" style="flex: 1; min-width: 200px;">
+        <input type="url" name="youtube_url" placeholder="https://www.youtube.com/watch?v=... or https://www.youtube.com/@name" required style="flex: 2; min-width: 260px;">
+        <button type="submit" style="width: auto; padding: 0.6rem 1rem;">➕ Add YouTube Channel</button>
+    </form>
+</div>
 <div class="team-grid">
     {% if channels_empty %}
     <div class="card" style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 3rem;">No channels enabled. Select entries from the catalog above.</div>
@@ -165,7 +174,7 @@
     </div>
     <div class="card" style="background: var(--accent-card-bg); border-color: var(--accent);">
         <h3 style="margin-top: 0;">🖼️ Multi-View Channels</h3>
-        <p class="hint-text">Composite 2 or 4 existing channels into one grid feed using server-side ffmpeg transcoding.</p>
+        <p class="hint-text">Composite 2 or 4 existing channels into one feed using server-side ffmpeg transcoding. Panes follow the order you tick the channels in: for Picture-in-picture, tick the main feed first, then the corner window (its audio plays by default).</p>
         {% if not multiview.ffmpeg_available %}
         <p class="hint-text" style="color:var(--danger-text);">⚠️ ffmpeg was not found at FFMPEG_PATH="{{ multiview.ffmpeg_path }}". Install ffmpeg and restart Jellyball to enable Multi-View channels.</p>
         {% elif not multiview.checkbox_list %}
@@ -175,16 +184,21 @@
             <div style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem;">
                 {% for member in multiview.checkbox_list %}
                 <label style="display:flex; align-items:center; gap:0.5rem; padding:0.25rem 0; font-size:0.85rem;">
-                    <input type="checkbox" class="multiview-member-select" data-team-id="{{ member.team_id }}">{{ member.name }}</label>
+                    <input type="checkbox" class="multiview-member-select" data-team-id="{{ member.team_id }}" onchange="trackMultiviewSelection(this)">{{ member.name }}</label>
                 {% endfor %}
             </div>
             <input type="hidden" id="multiview-team-ids" name="member_team_ids" value="">
             <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
                 <input type="text" name="name" placeholder="Channel name (e.g. NFL Sunday Quad-Box)" required style="flex: 1; min-width: 220px;">
-                <select name="layout" style="padding: 0.6rem; border-radius: 6px; background:var(--surface-2); color:var(--text); border:1px solid var(--border-strong);">
+                <select name="layout" id="multiview-layout" onchange="updateMultiviewOffsetField()" style="padding: 0.6rem; border-radius: 6px; background:var(--surface-2); color:var(--text); border:1px solid var(--border-strong);">
                     <option value="grid_2x2">2x2 Grid (4 channels)</option>
                     <option value="side_by_side_2">Side-by-Side (2 channels)</option>
+                    <option value="pip">Picture-in-picture (main + corner window)</option>
                 </select>
+                <label id="multiview-offset-field" style="display: none; align-items: center; gap: 0.4rem; font-size: 0.85rem;" title="Positive: the second channel (corner) plays this many seconds later. Negative: the first channel (main) plays later.">
+                    Delay of 2nd channel (s)
+                    <input type="number" name="offset_seconds" value="0" step="0.5" min="-{{ multiview.max_offset }}" max="{{ multiview.max_offset }}" style="width: 6rem;">
+                </label>
                 <button type="submit" style="width: auto; padding: 0.6rem 1rem;">➕ Create Multi-View</button>
             </div>
         </form>
@@ -196,7 +210,7 @@
             <h4 class="team-name">{{ mv.name }}</h4>
             <span class="badge">{{ mv.layout }}</span>
         </div>
-        <p class="meta-text"><span data-role="mv-status">{{ mv.status }}</span> &middot; Members: {{ mv.member_names }}</p>
+        <p class="meta-text"><span data-role="mv-status">{{ mv.status }}</span> &middot; Members: {{ mv.member_names }}{% if mv.offset > 0 %} &middot; {{ mv.second_name }} delayed {{ '%g' % mv.offset }}s{% elif mv.offset < 0 %} &middot; {{ mv.main_name }} delayed {{ '%g' % (-mv.offset) }}s{% endif %}</p>
         <div data-role="mv-failure">
             {% if mv.failure %}
             <p class="meta-text" style="color:var(--danger-text);">⚠️ {{ mv.failure.last_error }} (failed {{ mv.failure.count }}x, retrying in {{ mv.failure.retry_in }}s)</p>
@@ -211,6 +225,12 @@
                 </select>
                 <button type="submit" style="width:auto; padding:0.5rem 0.75rem; font-size:0.8rem; background:var(--surface-3); border:1px solid var(--border-strong);">🔊 Set Audio</button>
             </form>
+            {% if mv.supports_offset %}
+            <form action="/multiview/{{ mv.mv_id }}/set-offset" method="post" style="display:flex; gap:0.5rem; align-items:center;" title="Positive: {{ mv.second_name }} plays this many seconds later. Negative: {{ mv.main_name }} plays later. Up to {{ multiview.max_offset }}s; a running view restarts.">
+                <input type="number" name="offset_seconds" value="{{ '%g' % mv.offset }}" step="0.5" min="-{{ multiview.max_offset }}" max="{{ multiview.max_offset }}" aria-label="Delay of {{ mv.second_name }} in seconds" style="width:5.5rem; padding:0.45rem; font-size:0.8rem;">
+                <button type="submit" style="width:auto; padding:0.5rem 0.75rem; font-size:0.8rem; background:var(--surface-3); border:1px solid var(--border-strong);">⏱️ Set Delay</button>
+            </form>
+            {% endif %}
             <form action="/multiview/{{ mv.mv_id }}/start" method="post" style="display:inline;">
                 <button type="submit" style="width:auto; padding:0.5rem 0.75rem; font-size:0.8rem; background:var(--surface-3); border:1px solid var(--border-strong);">▶ Start</button>
             </form>

@@ -310,6 +310,7 @@ def _programme_xml_lines(channel_id: str, programmes: List[dict]) -> List[str]:
 MULTIVIEW_PANE_LABELS = {
     "side_by_side_2": ["Left", "Right"],
     "grid_2x2": ["Top-left", "Top-right", "Bottom-left", "Bottom-right"],
+    "pip": ["Main", "Corner"],
 }
 MULTIVIEW_MAX_PROGRAMMES = 500
 MULTIVIEW_MIN_INTERVAL_SECONDS = 300.0

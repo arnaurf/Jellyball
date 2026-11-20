@@ -15,4 +15,6 @@ class ISportSurgeScraper(HtmlAggregatorProvider):
                 "/nba/livestreams3", "/nhl/livestreams3", "/soccer/livestreams",
             ],
             ["/watch/", "/event/", "/title-game/"],
+            # Read only while searching for that series' channel.
+            category_paths={"f1": ["/f1/livestreams"], "motogp": ["/motogp/livestreams"]},
         )

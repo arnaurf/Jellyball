@@ -28,6 +28,7 @@ from multiview import (
 )
 from failover import _scrape_lifecycle_defaults, _start_team_scrape_loop, _stop_team_scrape_loop
 from sports_matcher import get_team_search_terms
+import youtube_live
 
 
 async def enforce_scheduled_disables_once() -> None:
@@ -134,6 +135,33 @@ async def _add_manual_team(
         category=category,
         content_type="manual",
         search_terms=search_terms,
+        **_scrape_lifecycle_defaults(),
+    )
+    _start_team_scrape_loop(team_id)
+    return team_id
+
+
+async def _add_youtube_channel(name: str, url: str, *, team_id: str = "") -> Optional[str]:
+    """Persist and start a YouTube live channel (see youtube_live). Returns the
+    channel id, or None when the name is empty or the URL is not a YouTube
+    live/channel URL."""
+    name = _clean_label(name, TEAM_NAME_MAX_LENGTH)
+    page_url = youtube_live.normalize_youtube_url(url)
+    if not name or not page_url:
+        return None
+    team_id = _safe_team_id(team_id or f"youtube_{name}")
+    await save_team_async(
+        team_id, name, page_url, category=youtube_live.YOUTUBE_CATEGORY,
+        content_type="channel", search_terms=[], always_live=True,
+    )
+    stream_state[team_id] = new_channel_state(
+        name=name,
+        query=page_url,
+        category=youtube_live.YOUTUBE_CATEGORY,
+        content_type="channel",
+        always_live=True,
+        group_title=youtube_live.YOUTUBE_GROUP_TITLE,
+        search_terms=[],
         **_scrape_lifecycle_defaults(),
     )
     _start_team_scrape_loop(team_id)

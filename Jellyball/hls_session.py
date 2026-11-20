@@ -173,6 +173,18 @@ class SessionSegment:
     discontinuity: bool
     data: bytes
     removed_at: float = 0.0  # when it left the window (grace buffer aging)
+    added_at: float = 0.0  # when it was published (delayed playlists)
+
+
+# Longest delay a delayed playlist (render_playlist(delay=...)) can serve. The
+# session keeps that many extra seconds of segments in memory while a delayed
+# reader is around (about 75 MB at 120 s of a 5 Mbit/s stream).
+MAX_PLAYLIST_DELAY_SECONDS = 120.0
+# A delay request keeps its extra history this long after the last delayed
+# playlist request; after that the history is released.
+_DELAY_REQUEST_TTL_SECONDS = 90.0
+# History kept beyond the delay itself: one full playlist window plus margin.
+_DELAY_HISTORY_MARGIN_SECONDS = 45.0
 
 
 @dataclass
@@ -507,6 +519,15 @@ class ChannelSession:
         }
         self._window_bytes = 0
         self._grace_bytes = 0
+        # Delayed playlists: every published segment while a delay is wanted
+        # (the same objects as in the window, so no copies). Grows to the
+        # wanted delay plus a margin and is dropped once nobody asks.
+        self.history: Deque[SessionSegment] = deque()
+        self._history_bytes = 0
+        # Discontinuity tags that left the head of `history`.
+        self._history_discontinuity_seq = 0
+        self._delay_wanted = 0.0
+        self._delay_wanted_at = 0.0
         self._task: Optional[asyncio.Task] = None
         self._ready = asyncio.Event()
         self._wake = asyncio.Event()
@@ -616,17 +637,101 @@ class ChannelSession:
         except asyncio.TimeoutError:
             return bool(self.window)
 
-    def render_playlist(self, segment_prefix: str) -> str:
+    # -- delayed playlists ---------------------------------------------------
+
+    def request_delay(self, seconds: float) -> float:
+        """Keep enough history to serve a playlist `seconds` behind live (capped
+        at MAX_PLAYLIST_DELAY_SECONDS); returns the delay that will be served.
+        Each delayed playlist request renews it. The history starts from the
+        current window, so a delay shorter than the window is served at once."""
+        delay = min(max(0.0, float(seconds or 0.0)), MAX_PLAYLIST_DELAY_SECONDS)
+        if delay <= 0:
+            return 0.0
+        now = time.monotonic()
+        if self._delay_active(now):
+            self._delay_wanted = max(self._delay_wanted, delay)
+        else:
+            self._delay_wanted = delay
+        self._delay_wanted_at = now
+        if not self.history and self.window:
+            self.history.extend(self.window)
+            self._history_bytes = sum(len(segment.data) for segment in self.history)
+            self._history_discontinuity_seq = self.discontinuity_seq
+        return delay
+
+    def _delay_active(self, now: float) -> bool:
+        return self._delay_wanted > 0 and now - self._delay_wanted_at < _DELAY_REQUEST_TTL_SECONDS
+
+    def _clear_history(self) -> None:
+        self._history_discontinuity_seq += sum(1 for segment in self.history if segment.discontinuity)
+        self.history.clear()
+        self._history_bytes = 0
+
+    def _record_history(self, segment: SessionSegment) -> None:
+        now = segment.added_at
+        if not self._delay_active(now):
+            if self.history:
+                self._clear_history()
+                self._delay_wanted = 0.0
+            return
+        self.history.append(segment)
+        self._history_bytes += len(segment.data)
+        keep_seconds = self._delay_wanted + _DELAY_HISTORY_MARGIN_SECONDS
+        while self.history and (
+            now - self.history[0].added_at > keep_seconds
+            or self._history_bytes > self.cfg.max_session_bytes
+        ):
+            removed = self.history.popleft()
+            self._history_bytes -= len(removed.data)
+            if removed.discontinuity:
+                self._history_discontinuity_seq += 1
+
+    def _delayed_segments(self, delay: float) -> Tuple[List[SessionSegment], int]:
+        """The segments of a playlist `delay` seconds behind live, and the
+        discontinuity sequence of its first one."""
+        cutoff = time.monotonic() - delay
+        eligible = 0
+        for segment in self.history:
+            if segment.added_at > cutoff:
+                break
+            eligible += 1
+        start = max(0, eligible - self.cfg.window_min_segments)
+        discontinuity_seq = self._history_discontinuity_seq + sum(
+            1 for index in range(start) if self.history[index].discontinuity
+        )
+        return [self.history[index] for index in range(start, eligible)], discontinuity_seq
+
+    def delayed_ready(self, delay: float) -> bool:
+        """True when a playlist `delay` seconds behind live has enough segments to start."""
+        return len(self._delayed_segments(delay)[0]) >= self.cfg.min_start_segments
+
+    async def wait_delayed_ready(self, delay: float, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while True:
+            self.request_delay(delay)
+            if self.delayed_ready(delay):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.5)
+
+    def render_playlist(self, segment_prefix: str, delay: float = 0.0) -> str:
+        """The live playlist, or with `delay` the one that many seconds behind
+        live (see request_delay; empty until enough history has built up)."""
         target = max(1, self.target_duration)
-        first_seq = self.window[0].seq if self.window else self.next_seq
+        if delay > 0:
+            segments, discontinuity_seq = self._delayed_segments(delay)
+        else:
+            segments, discontinuity_seq = list(self.window), self.discontinuity_seq
+        first_seq = segments[0].seq if segments else self.next_seq
         lines = [
             "#EXTM3U",
             "#EXT-X-VERSION:3",
             f"#EXT-X-TARGETDURATION:{target}",
             f"#EXT-X-MEDIA-SEQUENCE:{first_seq}",
-            f"#EXT-X-DISCONTINUITY-SEQUENCE:{self.discontinuity_seq}",
+            f"#EXT-X-DISCONTINUITY-SEQUENCE:{discontinuity_seq}",
         ]
-        for segment in self.window:
+        for segment in segments:
             if segment.discontinuity:
                 lines.append("#EXT-X-DISCONTINUITY")
             lines.append(f"#EXTINF:{segment.duration:.3f},")
@@ -641,7 +746,14 @@ class ChannelSession:
             for segment in self.window:
                 if segment.seq == seq:
                     return segment
-        return self.grace.get(seq)
+        segment = self.grace.get(seq)
+        if segment is None and self.history and self.history[0].seq <= seq <= self.history[-1].seq:
+            # Older than the window: a delayed playlist's segment.
+            index = seq - self.history[0].seq
+            if 0 <= index < len(self.history) and self.history[index].seq == seq:
+                return self.history[index]
+            return next((item for item in self.history if item.seq == seq), None)
+        return segment
 
     def _sync_audio_preference(self) -> None:
         getter = self.hooks.preferred_audio_language
@@ -773,6 +885,7 @@ class ChannelSession:
         self.window.clear()
         self.grace.clear()
         self._window_bytes = self._grace_bytes = 0
+        self._clear_history()
         self._ready.clear()
         # Force a fresh live-edge start (and a new timestamp epoch) next time.
         self.source = None
@@ -1198,6 +1311,8 @@ class ChannelSession:
 
     def _publish(self, segment: SessionSegment) -> None:
         self.next_seq += 1
+        segment.added_at = time.monotonic()
+        self._record_history(segment)
         if self.tune_in_latency_ms is None and self.started_at is not None:
             # First published segment of this run: time-to-first-segment, the
             # headline number for whether cold-start work is paying off.

@@ -415,6 +415,18 @@ OPTIONAL_SPECIAL_CHANNELS: Tuple[SpecialChannel, ...] = (
 )
 
 
+# Opt-in always-live Formula 1 channels (leagues.F1, catalog group "f1"). Like
+# the UK channels they are found by catalog key only. Sky Sports F1 is the UK
+# group's own entry, so a viewer who turns both groups on gets one channel.
+# Non-English feeds ("DAZN F1 ES") are kept or dropped by the stream-language
+# setting, exactly as every other listing is.
+F1_SPECIAL_CHANNELS: Tuple[SpecialChannel, ...] = (
+    next(channel for channel in OPTIONAL_SPECIAL_CHANNELS if channel.key == "uk_sky_sports_f1"),
+    SpecialChannel("f1_tv", "F1 TV", ("f1 tv", "f1tv", "formula 1 tv"), "", "F1TV.int", "Formula 1"),
+    SpecialChannel("dazn_f1", "DAZN F1", ("dazn f1", "dazn formula 1"), "", "DAZNF1.es", "Formula 1"),
+)
+
+
 # ESPN's current pro abbreviations are stable and are safer logo fallbacks than
 # deriving a slug from a display name. Generic nicknames remain in aliases so
 # the matcher can use them only when they are unambiguous.

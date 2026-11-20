@@ -300,6 +300,9 @@ MULTIVIEW_ROW_2_0_0 = (
     "mv_demo", "Multi-View Demo", "side_by_side_2", '["nfl_buf", "special_espn"]', "nfl_buf",
     "mv_demo", "Multi-View", "",
 )
+# What that row loads as after the upgrade: the later member_delays column
+# (migration 500) reads as '' (every member live).
+MULTIVIEW_ROW_UPGRADED = (*MULTIVIEW_ROW_2_0_0, "")
 
 SETTINGS_2_0_0 = {
     "jellyfin_url": "http://jellyfin.example.test:8096",
@@ -357,7 +360,7 @@ class DatabaseUpgradeTests(unittest.TestCase):
         self._upgrade()
         with patch.object(db, "DB_FILE", self.db_path):
             self.assertEqual(sorted(db.load_teams()), sorted(TEAM_ROWS_2_0_0))
-            self.assertEqual(db.load_multiview_channels(), [MULTIVIEW_ROW_2_0_0])
+            self.assertEqual(db.load_multiview_channels(), [MULTIVIEW_ROW_UPGRADED])
             for key, value in SETTINGS_2_0_0.items():
                 self.assertEqual(db.get_setting(key), value, key)
             with db._db_session() as conn:

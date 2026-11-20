@@ -12,4 +12,17 @@ into SCHEMA_MIGRATIONS and applies the pending ones in version order. Rules:
 - This module must not import db (db imports it).
 """
 
-MIGRATIONS: list = []
+import sqlite3
+
+
+def _multiview_member_delays(conn: sqlite3.Connection) -> None:
+    """Per-member delays of a Multi-View (JSON list of seconds, '' = all live),
+    used to sync a picture-in-picture corner stream with the main feed."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(multiview_channels)").fetchall()}
+    if "member_delays" not in existing:
+        conn.execute("ALTER TABLE multiview_channels ADD COLUMN member_delays TEXT DEFAULT ''")
+
+
+MIGRATIONS: list = [
+    (500, _multiview_member_delays),
+]
