@@ -51,6 +51,7 @@ BUILTIN_LOAD_ORDER = [
     "onestream",
     "streamedsu",
     "topstreams",
+    "totalsportek",
     "iptvorg",
 ]
 

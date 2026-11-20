@@ -39,6 +39,12 @@ logged and shown on the dashboard's Providers card.
   `{"f1": ["/f1streams"], "motogp": ["/motogpstreams"]}`. They are scanned
   after `categories`, and only while searching for a channel of that category,
   so a team search never fetches them.
+- `outbound_link_selector` (`HtmlAggregatorProvider` constructor argument):
+  a CSS selector for the links an event page lists to *other* stream sites,
+  for directories whose event pages have no player (Footybite:
+  `"#streams a[href]"`). When the event page itself yields no stream, up to
+  `OUTBOUND_MAX_LINKS` (default 10) of them are inspected, over HTTP first and
+  then in the browser; sites that gave a stream before are tried first.
 - `current_search_category()`: the catalog category (`"nfl"`, `"f1"`, ...) of
   the channel being searched, or `""` when the engine did not say.
 

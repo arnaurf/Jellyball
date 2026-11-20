@@ -1212,3 +1212,4 @@ from plugins.builtin.streameast.provider import StreamEastScraper  # noqa: E402
 from plugins.builtin.streamedsu.provider import StreamedSuScraper  # noqa: E402
 from plugins.builtin.thetvapp.provider import TheTVAppScraper  # noqa: E402
 from plugins.builtin.topstreams.provider import TopStreamsScraper  # noqa: E402
+from plugins.builtin.totalsportek.provider import TotalSportekScraper  # noqa: E402

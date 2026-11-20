@@ -21,7 +21,7 @@ from playwright.async_api import Browser
 
 from config import _log_failure, _validate_upstream_url, LOGGER
 from cpu_pool import run_cpu
-from network_safety import validate_http_url_async
+from network_safety import bounded_int, validate_http_url_async
 import provider_settings
 import provider_telemetry as telemetry
 from stream_extractor import (
@@ -278,6 +278,80 @@ class Provider:
                 urls.append(url)
         return urls
 
+    def _outbound_links(self, page_html: str, page_url: str) -> List[str]:
+        """The other-site stream links `outbound_link_selector` picks on an
+        event page, in page order, sites that gave a stream before first."""
+        site_hosts = {
+            urllib.parse.urlsplit(self.base_url).netloc.lower(),
+            urllib.parse.urlsplit(page_url).netloc.lower(),
+        }
+        links: List[str] = []
+        for anchor in make_soup(page_html).select(self.outbound_link_selector):
+            url = urllib.parse.urljoin(page_url, str(anchor.get("href") or ""))
+            host = urllib.parse.urlsplit(url).netloc.lower()
+            if host and host not in site_hosts and _validate_upstream_url(url) and url not in links:
+                links.append(url)
+        hits = _OUTBOUND_HOST_HITS
+        ranked = sorted(links, key=lambda u: -hits.get(urllib.parse.urlsplit(u).netloc.lower(), 0.0))
+        return ranked[:OUTBOUND_MAX_LINKS]
+
+    async def _follow_outbound_links(
+        self,
+        client: httpx.AsyncClient,
+        browser: Optional[Browser],
+        match_url: str,
+        score: int,
+        match_title: str,
+    ) -> List[dict]:
+        """Streams from the other sites an event page links to: plain HTTP for
+        each first, then the browser for the ones whose player needs scripts."""
+        headers = {"User-Agent": DEFAULT_USER_AGENT, "Referer": self.base_url + "/"}
+        page_html = await fetch_bounded_text(client, match_url, headers, 10.0)
+        if not page_html:
+            return []
+        links = await run_cpu(self._outbound_links, page_html, match_url)
+        if not links:
+            return []
+        found: Dict[str, List[dict]] = {}
+        http_semaphore = asyncio.Semaphore(6)
+
+        async def over_http(url: str) -> None:
+            async with http_semaphore:
+                try:
+                    found[url] = await asyncio.wait_for(
+                        fetch_streams_from_page(client, url, self.name, score, match_title), timeout=12.0
+                    )
+                except Exception:  # noqa: BLE001 - one dead mirror must not sink the rest
+                    found[url] = []
+
+        await asyncio.gather(*(over_http(url) for url in links))
+
+        async def in_browser(url: str) -> None:
+            try:
+                found[url] = await asyncio.wait_for(
+                    playwright_intercept_streams(browser, url, self.name, score, match_title, http_client=client),
+                    timeout=15.0,
+                )
+            except Exception:  # noqa: BLE001
+                found[url] = []
+
+        if browser is not None and browser.is_connected():
+            await asyncio.gather(*(in_browser(url) for url in links if not found.get(url)))
+
+        streams: List[dict] = []
+        now = time.time()
+        for url in links:
+            if found.get(url):
+                _OUTBOUND_HOST_HITS[urllib.parse.urlsplit(url).netloc.lower()] = now
+                for stream in found[url]:
+                    stream.setdefault("source_page", url)
+                    streams.append(stream)
+        LOGGER.info(
+            "provider %s: followed %d listed site(s) for one event, %d gave streams",
+            self.name, len(links), sum(1 for url in links if found.get(url)),
+        )
+        return streams
+
     async def search(
         self,
         query_or_terms,
@@ -302,6 +376,12 @@ def _matched_event(match_url: str, score: int, match_title: str, context: str = 
     return cast("tuple[str, int, str]", event)
 
 
+# Outbound stream sites (host -> last time one gave a stream), so the sites
+# that work are tried first on the next event; mirrors change often.
+_OUTBOUND_HOST_HITS: Dict[str, float] = {}
+OUTBOUND_MAX_LINKS = bounded_int(os.getenv("OUTBOUND_MAX_LINKS", "10"), 10, 1, 30)
+
+
 class HtmlAggregatorProvider(Provider):
     """Configurable adapter for aggregators that expose linked event pages."""
 
@@ -313,9 +393,14 @@ class HtmlAggregatorProvider(Provider):
         event_path_hints: Optional[List[str]] = None,
         event_path_patterns: Optional[List[str]] = None,
         category_paths: Optional[Dict[str, List[str]]] = None,
+        outbound_link_selector: str = "",
     ):
         super().__init__()
         self.name = name.strip() or "Aggregator"
+        # CSS selector for the links an event page lists to *other* stream
+        # sites ("Watch" buttons), for directories whose event pages have no
+        # player of their own (Footybite). Empty: never follow them.
+        self.outbound_link_selector = outbound_link_selector
         self._default_base_url = (base_url or "").strip().rstrip("/")
         self.categories = list(categories or [])
         self.category_paths = {
@@ -647,6 +732,10 @@ class HtmlAggregatorProvider(Provider):
                         event_streams = await fetch_streams_from_page(
                             client, match_url, self.name, score, match_title
                         )
+                        if not event_streams and self.outbound_link_selector:
+                            event_streams = await self._follow_outbound_links(
+                                client, browser, match_url, score, match_title
+                            )
                         if not event_streams and browser and browser.is_connected():
                             event_streams = await playwright_intercept_streams(
                                 browser, match_url, self.name, score, match_title, http_client=client
@@ -657,8 +746,13 @@ class HtmlAggregatorProvider(Provider):
                                 stream.setdefault("match_context", match_context)
                         return event_streams
 
+                    timeout = _engine.PROVIDER_EVENT_TIMEOUT
+                    if self.outbound_link_selector:
+                        # Following the listed sites takes a few browser
+                        # rounds; stay inside the provider's search budget.
+                        timeout = max(timeout, _engine.PROVIDER_SEARCH_TIMEOUT - 8.0)
                     try:
-                        return await asyncio.wait_for(inspect(), timeout=_engine.PROVIDER_EVENT_TIMEOUT)
+                        return await asyncio.wait_for(inspect(), timeout=timeout)
                     except asyncio.TimeoutError:
                         LOGGER.warning("Provider event timed out provider=%s url_host=%s", self.name, urllib.parse.urlparse(match_url).netloc)
                         return []

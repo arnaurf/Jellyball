@@ -83,8 +83,8 @@ class LoaderTests(unittest.TestCase):
         d.mkdir()
         (d / "manifest.json").write_text("{not valid json", encoding="utf-8")
         records = plugins.load_plugins()
-        # The 11 builtins still load; the bad plugin is recorded, not raised.
-        self.assertEqual(len(records), 11)
+        # The 12 builtins still load; the bad plugin is recorded, not raised.
+        self.assertEqual(len(records), 12)
         errors = plugins.get_plugin_errors()
         self.assertTrue(any(e["plugin"] == "badplugin" for e in errors))
 
@@ -97,14 +97,14 @@ class LoaderTests(unittest.TestCase):
     def test_newer_api_version_is_rejected(self):
         make_plugin_dir(self.tmp.name, "future", {"api_version": sdk.API_VERSION + 1})
         records = plugins.load_plugins()
-        self.assertEqual(len(records), 11)
+        self.assertEqual(len(records), 12)
         errors = plugins.get_plugin_errors()
         self.assertTrue(any("api_version" in e["error"] for e in errors))
 
     def test_import_failure_is_isolated(self):
         make_plugin_dir(self.tmp.name, "broken", provider_code="raise RuntimeError('boom')\n")
         records = plugins.load_plugins()
-        self.assertEqual(len(records), 11)
+        self.assertEqual(len(records), 12)
         errors = plugins.get_plugin_errors()
         self.assertTrue(any(e["plugin"] == "broken" for e in errors))
 
@@ -112,7 +112,7 @@ class LoaderTests(unittest.TestCase):
         code = STUB_PROVIDER_CODE.replace('name = "Test Plugin"', 'name = "Other Name"')
         make_plugin_dir(self.tmp.name, "mismatch", provider_code=code)
         records = plugins.load_plugins()
-        self.assertEqual(len(records), 11)
+        self.assertEqual(len(records), 12)
         errors = plugins.get_plugin_errors()
         self.assertTrue(any("does not match" in e["error"] for e in errors))
 
@@ -120,7 +120,7 @@ class LoaderTests(unittest.TestCase):
         code = "class TestProvider:\n    name = 'Test Plugin'\n"
         make_plugin_dir(self.tmp.name, "notprovider", provider_code=code)
         records = plugins.load_plugins()
-        self.assertEqual(len(records), 11)
+        self.assertEqual(len(records), 12)
         errors = plugins.get_plugin_errors()
         self.assertTrue(any("not a plugins.sdk.Provider subclass" in e["error"] for e in errors))
 
@@ -182,14 +182,14 @@ class PermissionTests(unittest.TestCase):
 class BuiltinMigrationTests(unittest.TestCase):
     EXPECTED_ORDER = [
         "TheTVApp", "DaddyLive", "iSportSurge", "MyBuffStreams", "MethStreams",
-        "StreamEast", "Footybite", "1Stream", "Streamed", "TopStreams", "IPTV-Org",
+        "StreamEast", "Footybite", "1Stream", "Streamed", "TopStreams", "TotalSportek", "IPTV-Org",
     ]
     EXPECTED_LINEAR = {"TheTVApp", "DaddyLive", "IPTV-Org"}
 
-    def test_all_eleven_builtins_load(self):
+    def test_all_twelve_builtins_load(self):
         records = plugins.get_plugin_records()
         builtins = [r for r in records if r.builtin]
-        self.assertEqual(len(builtins), 11)
+        self.assertEqual(len(builtins), 12)
         self.assertEqual([r.name for r in builtins], self.EXPECTED_ORDER)
 
     def test_builtin_load_order_matches_historical(self):
@@ -221,7 +221,7 @@ class BuiltinMigrationTests(unittest.TestCase):
 
     def test_reload_rebuilds_registry(self):
         records = plugins.reload_plugins()
-        self.assertEqual(len(records), 11)
+        self.assertEqual(len(records), 12)
         self.assertEqual([r.name for r in records], self.EXPECTED_ORDER)
 
 
@@ -230,7 +230,7 @@ class DashboardTests(unittest.TestCase):
         from routes_providers import provider_rows
 
         rows = provider_rows({})
-        self.assertEqual(len(rows), 11)
+        self.assertEqual(len(rows), 12)
         for row in rows:
             plugin = row["plugin"]
             self.assertEqual(plugin["version"], "3.0.0")
@@ -248,8 +248,8 @@ class DashboardTests(unittest.TestCase):
         before = scrapers.ACTIVE_PROVIDERS
         before_names = [p.name for p in before]
         result = asyncio.run(reload_providers(auth=True))
-        self.assertEqual(result["reloaded"], 11)
-        self.assertEqual(len(result["providers"]), 11)
+        self.assertEqual(result["reloaded"], 12)
+        self.assertEqual(len(result["providers"]), 12)
         self.assertEqual(result["errors"], [])
         # ACTIVE_PROVIDERS is the same list object, repopulated in place.
         self.assertIs(scrapers.ACTIVE_PROVIDERS, before)

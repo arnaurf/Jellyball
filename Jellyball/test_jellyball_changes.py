@@ -30,6 +30,7 @@ from scrapers import (
     OneStreamScraper,
     StreamedSuScraper,
     TopStreamsScraper,
+    TotalSportekScraper,
     _is_playlist_request_url,
     _providers_for_search,
     _channel_term_matches,
@@ -374,7 +375,8 @@ class JellyballChangesTests(unittest.TestCase):
             [provider.name for provider in ACTIVE_PROVIDERS],
             [
                 "TheTVApp", "DaddyLive", "iSportSurge", "MyBuffStreams", "MethStreams", "StreamEast",
-                "Footybite", "1Stream", "Streamed", "TopStreams", "IPTV-Org",
+                "Footybite", "1Stream", "Streamed", "TopStreams",
+                "TotalSportek", "IPTV-Org",
             ],
         )
 
@@ -400,6 +402,7 @@ class JellyballChangesTests(unittest.TestCase):
                 ["/nfl", "/nba", "/nhl", "/mlb", "/soccer"],
                 ["/watch/", "/match/", "/live/"],
             ),
+            TotalSportekScraper: ("https://live2.totalsportek.gives", [], []),
         }
 
         for scraper_type, (base_url, categories, hints) in expected.items():
@@ -416,6 +419,7 @@ class JellyballChangesTests(unittest.TestCase):
             "AGGREGATOR_10_URL": (OneStreamScraper, "https://onestream.example"),
             "AGGREGATOR_11_URL": (StreamedSuScraper, "https://streamed.example"),
             "AGGREGATOR_12_URL": (TopStreamsScraper, "https://topstreams.example"),
+            "AGGREGATOR_13_URL": (TotalSportekScraper, "https://totalsportek.example"),
         }
 
         with patch.dict(os.environ, {key: url for key, (_, url) in overrides.items()}):

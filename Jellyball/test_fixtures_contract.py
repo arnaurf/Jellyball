@@ -395,8 +395,9 @@ GATORS_LINKS = {
     "match": "/match/game-4406",
     "live": "/live/florida-gators-vs-kentucky-wildcats-4407",
     "stream": "/stream/florida-gators-vs-missouri-tigers-4408",
+    "tsk": "/Florida-Gators-vs-Vanderbilt-Commodores-vs-Live/4409",
 }
-# Each subclass differs only in its URL hints, so one index serves all eight.
+# Each subclass differs only in its URL hints, so one index serves all nine.
 EXPECTED_LINKS = {
     scrapers.ISportSurgeScraper: ("watch", "event", "title"),
     scrapers.MyBuffStreamsScraper: ("watch", "title", "cfb"),
@@ -406,6 +407,7 @@ EXPECTED_LINKS = {
     scrapers.OneStreamScraper: ("match", "live", "stream"),
     scrapers.StreamedSuScraper: ("watch", "live"),
     scrapers.TopStreamsScraper: ("watch", "match", "live"),
+    scrapers.TotalSportekScraper: ("tsk",),
 }
 OTHER_LINKS = (
     "/watch/ohio-state-buckeyes-vs-michigan-wolverines-live",
@@ -415,6 +417,7 @@ OTHER_LINKS = (
     "/watch/miami-dolphins-vs-new-england-patriots-4501",
     "/live/dallas-cowboys-vs-philadelphia-eagles-4502",
     "/schedule/florida-gators",
+    "/Ohio-State-Buckeyes-vs-Michigan-Wolverines-vs-Live/4503",
 )
 PLAYER_1 = "https://player.example.test/embed/gators-1"
 PLAYER_2 = "https://embed.example.test/frame/gators-2"

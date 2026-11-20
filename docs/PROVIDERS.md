@@ -16,7 +16,7 @@ requires those is simply skipped.
 
 | Kind | Providers | Used for |
 | :--- | :--- | :--- |
-| Event directories | iSportSurge, MyBuffStreams, MethStreams, StreamEast, Footybite, 1Stream, Streamed, TopStreams | Per-game streams: Jellyball reads the site's index pages, matches event links against the team (see below) and extracts a playlist from the event page. |
+| Event directories | iSportSurge, MyBuffStreams, MethStreams, StreamEast, Footybite, 1Stream, Streamed, TopStreams, TotalSportek | Per-game streams: Jellyball reads the site's index pages, matches event links against the team (see below) and extracts a playlist from the event page. |
 | Linear-channel adapters | TheTVApp, DaddyLive | 24/7 channels (ESPN, NFL RedZone, ...). Always-live channels are searched only on the linear providers. |
 | Static playlist | IPTV-Org | A cached public sports playlist, used only as an independent backup for 24/7 channels. It does no scraping, so it still works when every HTML provider is down. |
 
@@ -93,7 +93,8 @@ link-local targets are rejected, including through redirects, unless
 
 `AGGREGATOR_N_URL` numbering (the gaps are providers retired earlier):
 1 iSportSurge, 2 MyBuffStreams, 3 MethStreams, 4 StreamEast, 5 TheTVApp,
-6 DaddyLive, 9 Footybite, 10 1Stream, 11 Streamed, 12 TopStreams. Current
+6 DaddyLive, 9 Footybite, 10 1Stream, 11 Streamed, 12 TopStreams,
+13 TotalSportek. Current
 defaults are in `Jellyball/.env.example`.
 
 ## When a provider "stops working"

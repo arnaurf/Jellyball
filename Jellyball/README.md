@@ -381,6 +381,7 @@ Webhook delivery retries up to twice (honoring `Retry-After`, capped at
 | `AGGREGATOR_10_URL` | `https://1stream.ws` | 1Stream base URL | Domains |
 | `AGGREGATOR_11_URL` | `https://streamed.su` | Streamed base URL | Domains |
 | `AGGREGATOR_12_URL` | `https://topstreams.info` | TopStreams base URL | Domains |
+| `AGGREGATOR_13_URL` | `https://live2.totalsportek.gives` | TotalSportek base URL | Domains |
 | `EXTRA_NON_ENGLISH_MARKERS` | *(empty)* | Extra comma-separated channel-name substrings treated as non-English | |
 | `IPTV_ORG_PLAYLIST_URL` | `https://iptv-org.github.io/iptv/categories/sports.m3u` | Fallback iptv-org sports playlist | |
 | `IPTV_ORG_REFRESH_SECONDS` | `21600` | Refresh interval for the iptv-org playlist | |
